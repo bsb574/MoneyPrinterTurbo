@@ -2,7 +2,7 @@ import json
 import logging
 import re
 import requests
-from typing import List
+from typing import List, Optional
 
 from loguru import logger
 from openai import AzureOpenAI, OpenAI
@@ -560,7 +560,7 @@ def _generate_response(prompt: str) -> str:
         return f"Error: {str(e)}"
 
 
-def _limit_script_text(text: str | None, max_length: int, field_name: str) -> str:
+def _limit_script_text(text: Optional[str], max_length: int, field_name: str) -> str:
     value = (text or "").strip()
     if len(value) <= max_length:
         return value
@@ -574,7 +574,7 @@ def _limit_script_text(text: str | None, max_length: int, field_name: str) -> st
     return value[:max_length]
 
 
-def _normalize_script_paragraph_number(paragraph_number: int | None) -> int:
+def _normalize_script_paragraph_number(paragraph_number: Optional[int]) -> int:
     try:
         value = int(paragraph_number or MIN_SCRIPT_PARAGRAPH_NUMBER)
     except (TypeError, ValueError):
@@ -865,12 +865,12 @@ DEFAULT_SOCIAL_HASHTAGS = [
 ]
 
 
-def _resolve_social_platform(platform: str | None) -> str:
+def _resolve_social_platform(platform: Optional[str]) -> str:
     value = (platform or "").strip().lower()
     return value if value in SOCIAL_PLATFORMS else DEFAULT_SOCIAL_PLATFORM
 
 
-def _normalize_social_language(language: str | None) -> str:
+def _normalize_social_language(language: Optional[str]) -> str:
     value = (language or DEFAULT_SOCIAL_LANGUAGE).strip()
     if len(value) > MAX_SOCIAL_LANGUAGE_LENGTH:
         logger.warning(
@@ -881,7 +881,7 @@ def _normalize_social_language(language: str | None) -> str:
     return value or DEFAULT_SOCIAL_LANGUAGE
 
 
-def _limit_social_text(text: str | None, max_length: int, field_name: str) -> str:
+def _limit_social_text(text: Optional[str], max_length: int, field_name: str) -> str:
     value = (text or "").strip()
     if len(value) <= max_length:
         return value
@@ -894,7 +894,7 @@ def _limit_social_text(text: str | None, max_length: int, field_name: str) -> st
     return value[:max_length]
 
 
-def _social_language_instruction(language: str | None) -> str:
+def _social_language_instruction(language: Optional[str]) -> str:
     language = _normalize_social_language(language)
     if language.lower() == DEFAULT_SOCIAL_LANGUAGE:
         return (

@@ -101,11 +101,18 @@ def generate_audio(task_id, params, video_script):
         else:
             logger.info("no custom audio file provided, using TTS to generate audio.")
         audio_file = path.join(utils.task_dir(task_id), "audio.mp3")
+        # 兼容读取 reference_audio_path（声纹克隆用）
+        ref_audio = getattr(params, "reference_audio_path", None) or getattr(params, "reference_audio", None)
+        mimo_mode = getattr(params, "mimo_tts_mode", "standard")
+        voice_desc = getattr(params, "voice_description", "")
         sub_maker = voice.tts(
             text=video_script,
             voice_name=voice.parse_voice_name(params.voice_name),
             voice_rate=params.voice_rate,
             voice_file=audio_file,
+            reference_audio_path=ref_audio,
+            voice_mode=mimo_mode,
+            voice_description=voice_desc,
         )
         if sub_maker is None:
             sm.state.update_task(task_id, state=const.TASK_STATE_FAILED)

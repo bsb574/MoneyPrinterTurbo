@@ -1,4 +1,5 @@
 import warnings
+from typing import Optional, List, Any, Union
 from enum import Enum
 from typing import Any, List, Optional, Union
 
@@ -72,7 +73,7 @@ class VideoParams(BaseModel):
 
     video_subject: str
     video_script: str = ""  # Script used to generate the video
-    video_terms: Optional[str | list] = None  # Keywords used to generate the video
+    video_terms: Optional[Union[str, list]] = None  # Keywords used to generate the video
     video_aspect: Optional[VideoAspect] = VideoAspect.portrait.value
     video_concat_mode: Optional[VideoConcatMode] = VideoConcatMode.random.value
     video_transition_mode: Optional[VideoTransitionMode] = None
@@ -91,6 +92,9 @@ class VideoParams(BaseModel):
     voice_name: Optional[str] = ""
     voice_volume: Optional[float] = 1.0
     voice_rate: Optional[float] = 1.0
+    reference_audio_path: Optional[str] = ""  # 声纹克隆用参考音频路径
+    mimo_tts_mode: Optional[str] = "standard"  # standard / voicedesign / voiceclone
+    voice_description: Optional[str] = ""  # MiMo VoiceDesign 自然语言音色描述
     bgm_type: Optional[str] = "random"
     bgm_file: Optional[str] = ""
     bgm_volume: Optional[float] = 0.2

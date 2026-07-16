@@ -8,7 +8,7 @@ import shutil
 import subprocess
 from contextlib import redirect_stdout
 from functools import lru_cache
-from typing import List
+from typing import List, Optional, Union
 from loguru import logger
 import numpy as np
 from moviepy import (
@@ -186,7 +186,7 @@ def _ffmpeg_encoder_exists(ffmpeg_binary: str, codec: str) -> bool:
     return codec in result.stdout
 
 
-def _get_effective_video_codec(preferred_codec: str | None = None) -> str:
+def _get_effective_video_codec(preferred_codec: Optional[str] = None) -> str:
     """
     返回本次实际使用的视频编码器。
 
@@ -429,7 +429,7 @@ def close_clip(clip):
     del clip
     gc.collect()
 
-def delete_files(files: List[str] | str):
+def delete_files(files: Union[List[str], str]):
     if isinstance(files, str):
         files = [files]
 
@@ -795,19 +795,19 @@ def _rounded_subtitle_background_clip(
     alpha: int = 140,
     radius: int = 16,
 ) -> ImageClip:
-    # 新字幕背景仅在用户显式开启时使用：通过 RGBA 图片绘制圆角半透明底板，
-    # 再交给 MoviePy 作为透明 ImageClip 参与合成。这样默认路径完全不变，
-    # 同时可以低成本试验更柔和的字幕视觉效果。
     rgb = _hex_to_rgb(color)
     safe_alpha = max(0, min(255, int(alpha)))
-    img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    img = Image.new("RGB", (width, height), rgb)
     draw = ImageDraw.Draw(img)
     draw.rounded_rectangle(
         [0, 0, max(0, width - 1), max(0, height - 1)],
         radius=max(0, int(radius)),
-        fill=(rgb[0], rgb[1], rgb[2], safe_alpha),
+        fill=rgb,
     )
-    return ImageClip(np.array(img), transparent=True)
+    clip = ImageClip(np.array(img))
+    if safe_alpha < 255:
+        clip = clip.with_opacity(safe_alpha / 255.0)
+    return clip
 
 
 def _get_visible_center_position(
@@ -1011,9 +1011,7 @@ def generate_video(
                 text_align="center",
             )
         duration = subtitle_item[0][1] - subtitle_item[0][0]
-        _clip = _clip.with_start(subtitle_item[0][0])
-        _clip = _clip.with_end(subtitle_item[0][1])
-        _clip = _clip.with_duration(duration)
+        _clip = _clip.with_start(subtitle_item[0][0]).with_duration(duration, change_end=False)
         if params.subtitle_position == "bottom":
             _clip = _clip.with_position(("center", video_height * 0.95 - _clip.h))
         elif params.subtitle_position == "top":
@@ -1049,10 +1047,17 @@ def generate_video(
             subtitles=subtitle_path, encoding="utf-8", make_textclip=make_textclip
         )
         text_clips = []
-        for item in sub.subtitles:
+        for idx, item in enumerate(sub.subtitles):
             clip = create_text_clip(subtitle_item=item)
             text_clips.append(clip)
-        video_clip = CompositeVideoClip([video_clip, *text_clips])
+            if idx < 3 or idx >= len(sub.subtitles) - 2:
+                logger.debug(
+                    f"subtitle[{idx}]: start={item[0][0]:.3f}s end={item[0][1]:.3f}s "
+                    f"dur={item[0][1]-item[0][0]:.3f}s text={item[1][:30]}"
+                )
+        video_clip = CompositeVideoClip(
+            [video_clip, *text_clips], size=(video_width, video_height)
+        )
 
     bgm_file = get_bgm_file(bgm_type=params.bgm_type, bgm_file=params.bgm_file)
     if bgm_file:

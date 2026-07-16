@@ -28,8 +28,8 @@ from app.services import task as tm
 from app.utils import utils
 
 st.set_page_config(
-    page_title="MoneyPrinterTurbo",
-    page_icon="🤖",
+    page_title="口播视频生成",
+    page_icon="🎬",
     layout="wide",
     initial_sidebar_state="auto",
     menu_items={
@@ -88,7 +88,7 @@ locales = utils.load_locales(i18n_dir)
 title_col, lang_col = st.columns([3, 1])
 
 with title_col:
-    st.title(f"MoneyPrinterTurbo v{config.project_version}")
+    st.title("🎬 口播视频生成 1.0")
 
 with lang_col:
     display_languages = []
@@ -679,6 +679,30 @@ if not config.app.get("hide_config", False):
             )
             save_keys_to_config("coverr_api_keys", coverr_api_key)
 
+            st.divider()
+            st.write("🔊 TTS 设置")
+            saved_siliconflow_key = config.siliconflow.get("api_key", "")
+            siliconflow_key = st.text_input(
+                "SiliconFlow API Key（声纹克隆）",
+                value=saved_siliconflow_key,
+                type="password",
+                help="用于 CosyVoice2 声纹克隆，https://siliconflow.cn",
+            )
+            if siliconflow_key != saved_siliconflow_key:
+                config.siliconflow["api_key"] = siliconflow_key
+                config.save_config()
+
+            saved_mimo_key = config.app.get("mimo_api_key", "")
+            mimo_key = st.text_input(
+                "MiMo API Key",
+                value=saved_mimo_key,
+                type="password",
+                help="小米 MiMo TTS，https://platform.xiaomimimo.com",
+            )
+            if mimo_key != saved_mimo_key:
+                config.app["mimo_api_key"] = mimo_key
+                config.save_config()
+
 llm_provider = config.app.get("llm_provider", "").lower()
 panel = st.columns(3)
 left_panel = panel[0]
@@ -1001,12 +1025,40 @@ with middle_panel:
         if selected_tts_server == voice.NO_VOICE_NAME:
             friendly_names = {voice.NO_VOICE_NAME: tr("No Voice")}
         else:
-            friendly_names = {
-                v: v.replace("Female", tr("Female"))
-                .replace("Male", tr("Male"))
-                .replace("Neural", "")
-                for v in filtered_voices
+            # 地区 → 可读语种名映射
+            _LOCALE_LABELS = {
+                "zh-CN": "🇨🇳 中文(简体)", "zh-TW": "🇹🇼 中文(繁體)", "zh-HK": "🇭🇰 粵語",
+                "en-US": "🇺🇸 English(US)", "en-GB": "🇬🇧 English(UK)", "en-AU": "🇦🇺 English(AU)",
+                "en-IN": "🇮🇳 English(IN)", "en-CA": "🇨🇦 English(CA)",
+                "ja-JP": "🇯🇵 日本語", "ko-KR": "🇰🇷 한국어",
+                "fr-FR": "🇫🇷 Français", "fr-CA": "🇨🇦 Français(CA)",
+                "de-DE": "🇩🇪 Deutsch", "es-ES": "🇪🇸 Español",
+                "es-MX": "🇲🇽 Español(MX)", "pt-BR": "🇧🇷 Português(BR)",
+                "pt-PT": "🇵🇹 Português(PT)", "it-IT": "🇮🇹 Italiano",
+                "ru-RU": "🇷🇺 Русский", "ar-SA": "🇸🇦 العربية",
+                "ar-EG": "🇪🇬 العربية(EG)", "tr-TR": "🇹🇷 Türkçe",
+                "nl-NL": "🇳🇱 Nederlands", "pl-PL": "🇵🇱 Polski",
+                "sv-SE": "🇸🇪 Svenska", "da-DK": "🇩🇰 Dansk",
+                "fi-FI": "🇫🇮 Suomi", "nb-NO": "🇳🇴 Norsk",
+                "th-TH": "🇹🇭 ไทย", "vi-VN": "🇻🇳 Tiếng Việt",
+                "hi-IN": "🇮🇳 हिन्दी", "id-ID": "🇮🇩 Bahasa Indonesia",
+                "ms-MY": "🇲🇾 Bahasa Melayu",
             }
+            friendly_names = {}
+            for v in filtered_voices:
+                # 提取 locale 前缀（如 zh-CN-XiaoxiaoNeural → zh-CN）
+                locale = ""
+                parts = v.split("-")
+                if len(parts) >= 2:
+                    candidate = f"{parts[0]}-{parts[1]}"
+                    if candidate in _LOCALE_LABELS:
+                        locale = _LOCALE_LABELS[candidate]
+                    elif parts[0].isalpha() and len(parts[0]) == 2:
+                        locale = parts[0].upper()
+                label = locale + " " if locale else ""
+                # 清理展示名
+                display = v.replace("Female", tr("Female")).replace("Male", tr("Male")).replace("Neural", "").strip()
+                friendly_names[v] = label + display
 
         saved_voice_name = config.ui.get("voice_name", "")
         saved_voice_name_index = 0
@@ -1049,6 +1101,37 @@ with middle_panel:
             )
             params.voice_name = ""
             config.ui["voice_name"] = ""
+
+        # ── 声纹克隆：SiliconFlow 时显示上传参考音频 ──
+        ref_audio_path_key = "ref_audio_path"
+        if ref_audio_path_key not in st.session_state:
+            st.session_state[ref_audio_path_key] = ""
+        if selected_tts_server == "siliconflow":
+            st.caption("🔊 声纹克隆（可选）")
+            st.caption("上传一段真人音频（3-30秒），TTS将模仿该音色朗读")
+            uploaded_ref = st.file_uploader(
+                "上传参考音频（mp3/wav）",
+                type=["mp3", "wav", "m4a"],
+                key="ref_audio_uploader",
+                label_visibility="collapsed",
+            )
+            if uploaded_ref:
+                temp_ref_dir = os.path.join(root_dir, "storage", "temp", "ref_audio")
+                os.makedirs(temp_ref_dir, exist_ok=True)
+                ref_path = os.path.join(temp_ref_dir, "reference_audio.mp3")
+                with open(ref_path, "wb") as f:
+                    f.write(uploaded_ref.getbuffer())
+                st.session_state[ref_audio_path_key] = ref_path
+                st.success(f"参考音频已上传 ({uploaded_ref.size // 1024}KB)")
+            elif st.session_state[ref_audio_path_key]:
+                st.info("已上传参考音频（声纹克隆模式）")
+        else:
+            st.session_state[ref_audio_path_key] = ""
+        # 根据当前选择的 TTS 引擎取对应的参考音频路径
+        if selected_tts_server == "mimo-tts":
+            params.reference_audio_path = st.session_state.get("mimo_ref_audio_path", "")
+        else:
+            params.reference_audio_path = st.session_state.get(ref_audio_path_key, "")
 
         # 无配音模式会生成静音占位音频，不展示试听按钮，避免用户误以为需要测试声音。
         if (
@@ -1133,13 +1216,11 @@ with middle_panel:
 
             config.siliconflow["api_key"] = siliconflow_api_key
 
-        # 当选择 Xiaomi MiMo TTS 时，复用 MiMo LLM provider 的 API Key。
-        # 这样用户如果同时使用 MiMo 生成文案和语音，只需要维护一份密钥。
+        # ── MiMo TTS 设置 ──
         if selected_tts_server == "mimo-tts" or (
             voice_name and voice.is_mimo_voice(voice_name)
         ):
             saved_mimo_api_key = config.app.get("mimo_api_key", "")
-
             mimo_api_key = st.text_input(
                 tr("MiMo API Key"),
                 value=saved_mimo_api_key,
@@ -1147,15 +1228,94 @@ with middle_panel:
                 key="mimo_tts_api_key_input",
             )
 
-            st.info(
-                tr("MiMo TTS Settings")
-                + ":\n"
-                + "- "
-                + tr("Uses Xiaomi MiMo V2.5 TTS preset voices")
-                + "\n"
-                + "- "
-                + tr("Speed and volume are currently handled by the provider defaults")
+            # 模式选择
+            mimo_mode_key = "mimo_tts_mode"
+            if mimo_mode_key not in st.session_state:
+                st.session_state[mimo_mode_key] = "standard"
+            mimo_modes = {
+                "standard": "🎙️ 标准音色（预设）",
+                "voicedesign": "🎨 音色设计（自然语言描述）",
+                "voiceclone": "🔊 音色复刻（上传音频）",
+            }
+            selected_mode = st.radio(
+                "MiMo TTS 模式",
+                options=list(mimo_modes.keys()),
+                format_func=lambda k: mimo_modes[k],
+                key="mimo_mode_radio",
+                horizontal=True,
             )
+            st.session_state[mimo_mode_key] = selected_mode
+            params.mimo_tts_mode = selected_mode
+
+            mimor_ref_key = "mimo_ref_audio_path"
+            if mimor_ref_key not in st.session_state:
+                st.session_state[mimor_ref_key] = ""
+
+            if selected_mode == "voicedesign":
+                st.info("🎨 用自然语言描述想要的音色，TTS 会据此生成全新语音")
+                voice_desc_templates = [
+                    "30岁科技公司男性，普通话标准，语速适中，声音沉稳可靠",
+                    "25岁活泼女生，声音明亮，语速偏快，略带调皮感",
+                    "45岁上海女性，音色温暖带有鼻音，语速适中，说话时带有轻微微笑感",
+                    "30岁知性女声，带轻微南方口音，适合播讲知识类内容",
+                    "一位温和的老年男性，语速偏慢，声音慈祥",
+                ]
+                saved_desc = config.ui.get("mimo_voice_description", "")
+                voice_desc = st.text_area(
+                    "🎤 音色描述",
+                    value=saved_desc,
+                    placeholder="例：" + voice_desc_templates[0],
+                    height=80,
+                    help="越具体的描述，生成的音色越精准。包含：年龄、性别、地域、音质、情感等维度",
+                )
+                config.ui["mimo_voice_description"] = voice_desc
+                params.voice_description = voice_desc
+
+                with st.expander("💡 描述模板参考", expanded=False):
+                    for t in voice_desc_templates:
+                        st.caption(f"• {t}")
+                    st.caption("---")
+                    st.caption("也可嵌入音频标签增强表现力：")
+                    st.caption("• `[emotion: excited]` / `[emotion: sad]` — 情感控制")
+                    st.caption("• `<style=news_anchor>` — 整体风格")
+                    st.caption("• `[吸气]` / `[大笑]` / `<pause=200ms>` — 发音动作")
+                    st.caption("• `<pitch=+5%>` `<speed=90%>` — 音高/语速微调")
+                # 清除旧的克隆音频路径
+                st.session_state[mimor_ref_key] = ""
+
+            elif selected_mode == "voiceclone":
+                st.info("🔊 上传一段真人音频（3-30秒），MiMo 将模仿该音色朗读")
+                uploaded_mimo_ref = st.file_uploader(
+                    "上传参考音频（mp3/wav/m4a）",
+                    type=["mp3", "wav", "m4a"],
+                    key="mimo_ref_audio_uploader",
+                    label_visibility="collapsed",
+                )
+                if uploaded_mimo_ref:
+                    temp_ref_dir = os.path.join(root_dir, "storage", "temp", "ref_audio")
+                    os.makedirs(temp_ref_dir, exist_ok=True)
+                    ref_path = os.path.join(temp_ref_dir, "mimo_reference_audio.mp3")
+                    with open(ref_path, "wb") as f:
+                        f.write(uploaded_mimo_ref.getbuffer())
+                    st.session_state[mimor_ref_key] = ref_path
+                    st.success(f"参考音频已上传 ({uploaded_mimo_ref.size // 1024}KB)")
+                elif st.session_state[mimor_ref_key]:
+                    st.info("已上传参考音频（音色复刻模式）")
+                # 清除旧的描述
+                config.ui["mimo_voice_description"] = ""
+                params.voice_description = ""
+            else:
+                # standard 模式：显示音色选择 + 预设信息
+                st.caption("🎙️ 使用内置预设音色，从上方下拉列表中选择")
+                # 清除非标准模式的参数
+                st.session_state[mimor_ref_key] = ""
+                config.ui["mimo_voice_description"] = ""
+                params.voice_description = ""
+
+            # 如果没有选中 MiMo，清除状态
+            if selected_tts_server != "mimo-tts":
+                st.session_state[mimor_ref_key] = ""
+                st.session_state[mimo_mode_key] = "standard"
 
             config.app["mimo_api_key"] = mimo_api_key
 
@@ -1537,13 +1697,24 @@ if start_button:
 
     video_files = result.get("videos", [])
     st.success(tr("Video Generation Completed"))
-    try:
-        if video_files:
-            player_cols = st.columns(len(video_files) * 2 + 1)
-            for i, url in enumerate(video_files):
-                player_cols[i * 2 + 1].video(url)
-    except Exception:
-        pass
+
+    # 视频预览 — 直接通过后端 API 加载播放
+    if video_files:
+        backend_host = config.app.get("endpoint", "") or "http://127.0.0.1:8080"
+        task_dir_name = os.path.basename(utils.task_dir(task_id))
+        preview_urls = []
+        for file_path in video_files:
+            file_name = os.path.basename(file_path)
+            url = f"{backend_host}/api/v1/download/{task_dir_name}/{file_name}"
+            preview_urls.append(url)
+
+        st.divider()
+        st.subheader("🎬 视频预览")
+        player_cols = st.columns(len(preview_urls) * 2 + 1)
+        for i, url in enumerate(preview_urls):
+            with player_cols[i * 2 + 1]:
+                st.video(url)
+                st.caption(f"视频 {i+1}")
 
     open_task_folder(task_id)
     logger.info(tr("Video Generation Completed"))

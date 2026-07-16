@@ -12,7 +12,7 @@ import threading
 import time
 import unicodedata
 from datetime import datetime
-from typing import Union
+from typing import Union, Optional
 from xml.sax.saxutils import unescape
 
 import edge_tts
@@ -200,7 +200,7 @@ def is_mimo_voice(voice_name: str):
     return voice_name.startswith("mimo:")
 
 
-def is_no_voice(voice_name: str | None) -> bool:
+def is_no_voice(voice_name: Optional[str]) -> bool:
     """
     判断用户是否明确选择了“无配音”模式。
 
@@ -304,6 +304,9 @@ def tts(
     voice_rate: float,
     voice_file: str,
     voice_volume: float = 1.0,
+    reference_audio_path: Optional[str] = None,
+    voice_mode: str = "standard",
+    voice_description: str = "",
 ) -> Union[SubMaker, None]:
     if is_no_voice(voice_name):
         duration_seconds = estimate_no_voice_duration(text)
@@ -331,7 +334,8 @@ def tts(
             # 构建完整的voice参数，格式为 "model:voice"
             full_voice = f"{model}:{voice}"
             return siliconflow_tts(
-                text, model, full_voice, voice_rate, voice_file, voice_volume
+                text, model, full_voice, voice_rate, voice_file, voice_volume,
+                reference_audio_path=reference_audio_path,
             )
         else:
             logger.error(f"Invalid siliconflow voice name format: {voice_name}")
@@ -356,7 +360,10 @@ def tts(
         if len(parts) >= 2:
             voice_with_gender = parts[1]
             voice = voice_with_gender.split("-")[0]
-            return mimo_tts(text, voice, voice_rate, voice_file, voice_volume)
+            return mimo_tts(text, voice, voice_rate, voice_file, voice_volume,
+                           reference_audio_path=reference_audio_path,
+                           voice_mode=voice_mode,
+                           voice_description=voice_description)
         else:
             logger.error(f"Invalid mimo voice name format: {voice_name}")
             return None
@@ -686,6 +693,59 @@ def azure_tts_v1(
     return None
 
 
+def siliconflow_upload_voice(
+    audio_file_path: str,
+    model: str = "FunAudioLLM/CosyVoice2-0.5B",
+    custom_name: str = "",
+    reference_text: str = "",
+) -> Optional[str]:
+    """
+    上传参考音频到硅基流动，创建声纹克隆。
+
+    Returns:
+        voice URI (如 "speech:my-voice:xxx:xxx")，失败返回 None
+    """
+    api_key = config.siliconflow.get("api_key", "")
+    if not api_key:
+        logger.error("SiliconFlow API key is not set")
+        return None
+
+    if not os.path.isfile(audio_file_path):
+        logger.error(f"reference audio file not found: {audio_file_path}")
+        return None
+
+    voice_name = custom_name or os.path.splitext(os.path.basename(audio_file_path))[0]
+    url = "https://api.siliconflow.cn/v1/uploads/audio/voice"
+
+    for i in range(3):
+        try:
+            logger.info(f"uploading voice {voice_name}, try: {i + 1}")
+            with open(audio_file_path, "rb") as f:
+                files = {"file": (os.path.basename(audio_file_path), f, "audio/mpeg")}
+                data = {"model": model, "customName": voice_name}
+                if reference_text:
+                    data["text"] = reference_text
+                headers = {"Authorization": f"Bearer {api_key}"}
+                resp = requests.post(url, headers=headers, files=files, data=data)
+
+            if resp.status_code == 200:
+                result = resp.json()
+                voice_uri = result.get("uri", "")
+                if voice_uri:
+                    logger.success(f"voice uploaded: {voice_uri}")
+                    return voice_uri
+                else:
+                    logger.error(f"upload response missing uri: {result}")
+            else:
+                logger.error(
+                    f"upload voice failed (HTTP {resp.status_code}): {resp.text}"
+                )
+        except Exception as e:
+            logger.error(f"upload voice error: {str(e)}")
+
+    return None
+
+
 def siliconflow_tts(
     text: str,
     model: str,
@@ -693,6 +753,7 @@ def siliconflow_tts(
     voice_rate: float,
     voice_file: str,
     voice_volume: float = 1.0,
+    reference_audio_path: Optional[str] = None,
 ) -> Union[SubMaker, None]:
     """
     使用硅基流动的API生成语音
@@ -703,7 +764,8 @@ def siliconflow_tts(
         voice: 声音名称，如 "FunAudioLLM/CosyVoice2-0.5B:alex"
         voice_rate: 语音速度，范围[0.25, 4.0]
         voice_file: 输出的音频文件路径
-        voice_volume: 语音音量，范围[0.6, 5.0]，需要转换为硅基流动的增益范围[-10, 10]
+        voice_volume: 语音音量，范围[0.6, 5.0]
+        reference_audio_path: 可选，参考音频路径，启用 zero-shot 声纹克隆
 
     Returns:
         SubMaker对象或None
@@ -714,6 +776,20 @@ def siliconflow_tts(
     if not api_key:
         logger.error("SiliconFlow API key is not set")
         return None
+
+    # 声纹克隆：上传参考音频获取 voice URI
+    effective_voice = voice
+    if reference_audio_path:
+        logger.info(f"voice cloning enabled, uploading reference: {reference_audio_path}")
+        voice_uri = siliconflow_upload_voice(
+            audio_file_path=reference_audio_path,
+            model=model,
+        )
+        if not voice_uri:
+            logger.error("voice cloning failed, fallback to preset voice")
+        else:
+            effective_voice = voice_uri
+            logger.info(f"using cloned voice: {effective_voice}")
 
     # 将voice_volume转换为硅基流动的增益范围
     # 默认voice_volume为1.0，对应gain为0
@@ -726,7 +802,7 @@ def siliconflow_tts(
     payload = {
         "model": model,
         "input": text,
-        "voice": voice,
+        "voice": effective_voice,
         "response_format": "mp3",
         "sample_rate": 32000,
         "stream": False,
@@ -1048,16 +1124,22 @@ def mimo_tts(
     voice_rate: float,
     voice_file: str,
     voice_volume: float = 1.0,
+    reference_audio_path: Optional[str] = None,
+    voice_mode: str = "standard",
+    voice_description: str = "",
 ) -> Union[SubMaker, None]:
     """
     使用 Xiaomi MiMo V2.5 TTS 生成语音。
 
-    官方接口兼容 OpenAI Chat Completions，但 TTS 有两个关键差异：
-    1. 待合成文本必须放在 `assistant` 消息里；
-    2. 音频以 `message.audio.data` 的 base64 字符串返回。
+    支持三种模式：
+    - standard: 使用内置预设音色（`mimo-v2.5-tts`）
+    - voicedesign: 自然语言描述生成音色（`mimo-v2.5-tts-voicedesign`）
+    - voiceclone: 参考音频克隆音色（`mimo-v2.5-tts-voiceclone`）
 
-    MiMo 当前没有返回逐词时间轴，因此这里复用项目已有的 legacy
-    SubMaker 兜底方案：根据最终音频时长和脚本文本断句生成字幕时间轴。
+    官方接口兼容 OpenAI Chat Completions：
+    1. 合成文本放在 assistant 消息里；
+    2. 音频以 message.audio.data 的 base64 字符串返回；
+    3. VoiceDesign 时，音色描述放在 user 消息里。
     """
     from pydub import AudioSegment
 
@@ -1072,32 +1154,57 @@ def mimo_tts(
         return None
 
     base_url = config.app.get("mimo_base_url", "") or _MIMO_DEFAULT_BASE_URL
-    model_name = config.app.get("mimo_tts_model_name", "") or _MIMO_DEFAULT_TTS_MODEL
     style_prompt = config.app.get(
         "mimo_tts_style_prompt",
         "请用自然、清晰、适合短视频旁白的语气朗读。",
     )
-
     _configure_pydub_ffmpeg(AudioSegment)
+
+    # 根据模式选择模型和构造 messages
+    if voice_mode == "voiceclone" or reference_audio_path:
+        model_name = "mimo-v2.5-tts-voiceclone"
+        logger.info(f"mimo voice clone enabled, reference: {reference_audio_path}")
+        messages = [
+            {"role": "user", "content": style_prompt},
+            {"role": "assistant", "content": text},
+        ]
+    elif voice_mode == "voicedesign":
+        model_name = "mimo-v2.5-tts-voicedesign"
+        desc = (voice_description or "").strip()
+        if not desc:
+            logger.warning("voice description is empty for voicedesign mode, using default")
+            desc = "一位30岁的成年人，普通话标准，声音自然清晰，适合朗读"
+        logger.info(f"mimo voice design: {desc}")
+        # VoiceDesign：user 放音色描述，assistant 放合成文本
+        messages = [
+            {"role": "user", "content": desc},
+            {"role": "assistant", "content": text},
+        ]
+    else:
+        model_name = config.app.get("mimo_tts_model_name", "") or _MIMO_DEFAULT_TTS_MODEL
+        messages = [
+            {"role": "user", "content": style_prompt},
+            {"role": "assistant", "content": text},
+        ]
 
     for i in range(3):
         try:
             logger.info(
-                f"start mimo tts, model: {model_name}, voice: {voice_name}, try: {i + 1}"
+                f"start mimo tts, model: {model_name}, voice: {voice_name}, "
+                f"mode: {voice_mode}, try: {i + 1}"
             )
             ensure_file_path_exists(voice_file)
+
+            audio_params = {"format": "wav"}
+            # standard/voiceclone 模式传 voice，voicedesign 模式不传
+            if voice_mode != "voicedesign":
+                audio_params["voice"] = voice_name
 
             client = OpenAI(api_key=api_key, base_url=base_url)
             completion = client.chat.completions.create(
                 model=model_name,
-                messages=[
-                    {"role": "user", "content": style_prompt},
-                    {"role": "assistant", "content": text},
-                ],
-                audio={
-                    "format": "wav",
-                    "voice": voice_name,
-                },
+                messages=messages,
+                audio=audio_params,
             )
 
             if not completion or not getattr(completion, "choices", None):
@@ -1143,21 +1250,20 @@ def mimo_tts(
 
 
 def _format_text(text: str) -> str:
-    """
-    清理字幕对齐前的脚本文本。
-
-    这里不能只在 LLM 生成阶段处理，因为用户也可能手动粘贴脚本，或通过
-    API 直接传入包含 Markdown 标记的文本。TTS 通常不会朗读 `---`、
-    `___`、`***` 这类分隔符行，也不会朗读 `_` 这种强调标记；如果字幕
-    对齐仍保留这些字符，`create_subtitle()` 会一直等待不存在的 cue，
-    最终导致字幕文件缺失并在 Whisper fallback 校正时补出全 0 时间轴。
-    """
+    # TTS 不会朗读的标记字符，清理后提升字幕 cue 与脚本的匹配率。
+    # 注意：必须在 split_string_by_punctuations 前做，否则多出空行。
     text = text.replace("[", " ")
     text = text.replace("]", " ")
     text = text.replace("(", " ")
     text = text.replace(")", " ")
     text = text.replace("{", " ")
     text = text.replace("}", " ")
+    # 中文引号和特殊标点：Edge TTS 不会输出“”‘’——……等字符
+    text = text.replace("“", "").replace("”", "")  # ""
+    text = text.replace("‘", "").replace("’", "")  # ''
+    text = text.replace("—", "")  # —
+    text = text.replace("–", "")  # –
+    text = text.replace("…", "")  # …
     return utils.normalize_script_for_subtitle_matching(text)
 
 
@@ -1362,7 +1468,70 @@ def _build_subtitle_items_from_legacy_submaker(
             f"legacy subtitle items still have unmatched text after aggregation: {sub_line}"
         )
 
-    return sub_items
+def _redistribute_subtitle_timings(
+    sub_items: list[str],
+    script_lines: list[str],
+    audio_duration_100ns: int,
+) -> list[str]:
+    """
+    修复字幕时间码对齐问题：
+    1. 消除字幕间的间隙（gap filling）
+    2. 消除字幕间的重叠（overlap removal）
+    3. 第一条对齐 0，最后一条对齐音频结尾
+
+    保留 Edge TTS 的原始时长比例，只修正边界对齐。
+    """
+    formatter = _build_subtitle_formatter()
+
+    def _to_100ns(ts: str) -> int:
+        h, m, rest = ts.strip().split(":")
+        s, ms = rest.split(",")
+        return int((int(h)*3600 + int(m)*60 + int(s) + int(ms)/1000) * 10000000)
+
+    # 1. 解析原始 SRT
+    items = []
+    for item in sub_items:
+        lines = item.strip().split("\n")
+        if len(lines) < 3:
+            continue
+        tline = lines[1]
+        txt = "\n".join(lines[2:]).strip()
+        parts = tline.split(" --> ")
+        if len(parts) == 2:
+            items.append((txt, _to_100ns(parts[0]), _to_100ns(parts[1])))
+
+    if not items:
+        return sub_items
+
+    # 2. 复制一份用于修改
+    starts = [s for _, s, _ in items]
+    ends = [e for _, _, e in items]
+
+    # 第0条对齐0
+    offset = starts[0]
+
+    # 3. 消除间隙（forward pass）
+    for i in range(1, len(items)):
+        if starts[i] > ends[i-1]:
+            starts[i] = ends[i-1]
+
+    # 4. 消除重叠（backward pass）
+    for i in range(len(items) - 2, -1, -1):
+        if ends[i] > starts[i+1]:
+            ends[i] = starts[i+1]
+
+    # 5. 第一条start=0，最后一条end=音频结尾
+    result = []
+    for i, (txt, _, _) in enumerate(items):
+        s = max(0, starts[i] - offset)
+        e = max(s + 1, ends[i] - offset)
+        if i == 0:
+            s = 0
+        if i == len(items) - 1:
+            e = audio_duration_100ns
+        result.append(formatter(idx=i+1, start_time=s, end_time=e, sub_text=txt))
+
+    return result
 
 
 def create_subtitle(sub_maker: SubMaker, text: str, subtitle_file: str):
@@ -1387,6 +1556,19 @@ def create_subtitle(sub_maker: SubMaker, text: str, subtitle_file: str):
                 f"failed, sub_items len: {len(sub_items)}, script_lines len: {len(script_lines)}"
             )
             return
+
+        # 获取音频总时长（100ns 单位），用于精确对齐
+        if hasattr(sub_maker, "cues") and sub_maker.cues:
+            audio_duration_sec = sub_maker.cues[-1].end.total_seconds()
+        else:
+            legacy_offsets = getattr(sub_maker, "offset", [])
+            audio_duration_sec = legacy_offsets[-1][1] / 10000000 if legacy_offsets else 0
+
+        audio_duration_100ns = int(audio_duration_sec * 10000000)
+        if audio_duration_100ns > 0:
+            sub_items = _redistribute_subtitle_timings(
+                sub_items, script_lines, audio_duration_100ns
+            )
 
         _write_subtitle_items(sub_items, subtitle_file)
     except Exception as e:
