@@ -9,6 +9,8 @@ on:
 jobs:
   build-windows:
     runs-on: windows-latest
+    env:
+      PYTHONIOENCODING: utf-8
     steps:
       - uses: actions/checkout@v4
 
@@ -26,7 +28,9 @@ jobs:
           pip install pyinstaller moviepy==2.2.1 edge_tts==7.2.7 loguru requests pydantic toml numpy pillow streamlit fastapi uvicorn python-multipart
 
       - name: 打包
-        run: python build.py
+        run: |
+          chcp 65001
+          python build.py
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
