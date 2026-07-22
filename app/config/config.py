@@ -11,7 +11,9 @@ from loguru import logger
 from app import __version__
 
 root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-config_file = f"{root_dir}/config.toml"
+# PyInstaller 打包后配置文件可能在数据目录而非资源目录
+config_file = os.environ.get("MPT_CONFIG_FILE", f"{root_dir}/config.toml")
+data_dir = os.environ.get("MPT_DATA_DIR", f"{root_dir}/storage")
 _CONTAINER_CGROUP_MARKERS = ("docker", "containerd", "kubepods", "libpod", "podman")
 _DOCKER_HOST_GATEWAY_NAME = "host.docker.internal"
 _config_save_lock = threading.RLock()

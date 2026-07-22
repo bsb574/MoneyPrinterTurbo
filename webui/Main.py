@@ -1,4 +1,5 @@
 import os
+import shutil
 import sys
 import webbrowser
 from uuid import UUID, uuid4
@@ -56,6 +57,76 @@ font_dir = os.path.join(root_dir, "resource", "fonts")
 song_dir = os.path.join(root_dir, "resource", "songs")
 i18n_dir = os.path.join(root_dir, "webui", "i18n")
 config_file = os.path.join(root_dir, "webui", ".streamlit", "webui.toml")
+def _pick_directory() -> str:
+    """打开原生目录选择对话框（Windows/macOS），返回选中的路径"""
+    import subprocess
+    import tempfile
+
+    if sys.platform == "darwin":
+        # macOS: 用 AppleScript 弹窗，支持中文路径
+        script = '''
+        tell application "System Events"
+            activate
+            set theFolder to choose folder with prompt "选择视频保存目录"
+            return POSIX path of theFolder
+        end tell
+        '''
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True, text=True, timeout=120,
+            )
+            path = result.stdout.strip()
+            if path and not result.stderr.startswith("execution error"):
+                return path.rstrip("/")
+        except Exception:
+            pass
+        # Fallback: tkinter
+        try:
+            import tkinter.filedialog
+            import tkinter
+            tkinter.Tk().withdraw()
+            return tkinter.filedialog.askdirectory(title="选择视频保存目录")
+        except Exception:
+            pass
+
+    elif sys.platform == "win32":
+        # Windows: PowerShell 原生文件夹选择器
+        ps_script = '''
+        Add-Type -AssemblyName System.Windows.Forms
+        $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+        $dialog.Description = "选择视频保存目录"
+        if ($dialog.ShowDialog() -eq "OK") { $dialog.SelectedPath }
+        '''
+        try:
+            result = subprocess.run(
+                ["powershell", "-Command", ps_script],
+                capture_output=True, text=True, timeout=120,
+            )
+            path = result.stdout.strip()
+            if path:
+                return path
+        except Exception:
+            pass
+        # Fallback: tkinter
+        try:
+            import tkinter.filedialog
+            import tkinter
+            tkinter.Tk().withdraw()
+            return tkinter.filedialog.askdirectory(title="选择视频保存目录")
+        except Exception:
+            pass
+
+    # 最后的兜底：tkinter
+    try:
+        import tkinter.filedialog
+        import tkinter
+        tkinter.Tk().withdraw()
+        return tkinter.filedialog.askdirectory(title="选择视频保存目录")
+    except Exception:
+        return ""
+
+
 system_locale = utils.get_system_locale()
 
 
@@ -1598,6 +1669,37 @@ with right_panel:
                     config.save_config()
                     st.success(tr("Coverr API Key deleted successfully"))
 
+    # ── 视频保存目录 ──
+    if "_out_dir_val" not in st.session_state:
+        st.session_state["_out_dir_val"] = config.ui.get("output_dir", "")
+
+    # 目录选择按钮放前面，这样它在每次渲染时先执行，不会和后续 widget 冲突
+    dir_picked = False
+    if st.button("📂 选择目录", help="打开本地目录选择器"):
+        selected = _pick_directory()
+        if selected:
+            st.session_state["_out_dir_val"] = selected
+            config.ui["output_dir"] = selected
+            config.save_config()
+            dir_picked = True
+
+    out_dir = st.text_input(
+        "📁 视频保存目录",
+        value=st.session_state["_out_dir_val"],
+        placeholder="留空则使用默认目录（storage/tasks/）",
+        help="指定生成视频的保存路径，也可点击右侧按钮选择本地目录",
+        key="out_dir_widget",
+    )
+
+    # 若文本框被手工修改，同步到内部状态 + config
+    if out_dir != st.session_state["_out_dir_val"]:
+        st.session_state["_out_dir_val"] = out_dir
+        config.ui["output_dir"] = out_dir
+        config.save_config()
+
+    if dir_picked:
+        st.rerun()
+
 start_button = st.button(tr("Generate Video"), use_container_width=True, type="primary")
 if start_button:
     config.save_config()
@@ -1715,6 +1817,22 @@ if start_button:
             with player_cols[i * 2 + 1]:
                 st.video(url)
                 st.caption(f"视频 {i+1}")
+
+    # ── 若用户指定了保存目录，复制视频到目标位置 ──
+    saved_out_dir = st.session_state.get("_out_dir_val", "").strip()
+    if saved_out_dir and video_files:
+        try:
+            os.makedirs(saved_out_dir, exist_ok=True)
+            copied = []
+            for src_path in video_files:
+                dst_name = os.path.basename(src_path)
+                dst_path = os.path.join(saved_out_dir, dst_name)
+                shutil.copy2(src_path, dst_path)
+                copied.append(dst_path)
+            if copied:
+                st.success(f"📁 视频已保存到: {saved_out_dir}")
+        except Exception as e:
+            st.warning(f"⚠️ 保存到指定目录失败: {e}")
 
     open_task_folder(task_id)
     logger.info(tr("Video Generation Completed"))

@@ -1,3 +1,4 @@
+import sys
 import json
 import math
 import os
@@ -86,11 +87,35 @@ def normalize_clip_speed(value, default: float = 1.0) -> float:
 
 
 def root_dir():
-    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+    """获取项目根目录（资源目录，只读），兼容 PyInstaller 打包环境"""
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        return Path(sys._MEIPASS)
+    return Path(os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))))
+
+
+def data_dir(sub_dir: str = ""):
+    """获取用户数据目录（可写），用于 storage/logs/tasks/config.toml"""
+    env_data = os.environ.get("MPT_DATA_DIR", "")
+    if env_data:
+        base = Path(env_data)
+    elif getattr(sys, 'frozen', False):
+        if sys.platform == "darwin":
+            base = Path.home() / "Library" / "Application Support" / "MoneyPrinterTurbo"
+        elif sys.platform == "win32":
+            base = Path(os.environ.get("APPDATA", "")) / "MoneyPrinterTurbo"
+        else:
+            xdg = os.environ.get("XDG_CONFIG_HOME", "")
+            base = Path(xdg) / "MoneyPrinterTurbo" if xdg else Path.home() / ".config" / "MoneyPrinterTurbo"
+    else:
+        base = root_dir()
+
+    if sub_dir:
+        base = base / sub_dir
+    return str(base)
 
 
 def storage_dir(sub_dir: str = "", create: bool = False):
-    d = os.path.join(root_dir(), "storage")
+    d = data_dir("storage")
     if sub_dir:
         d = os.path.join(d, sub_dir)
     if create and not os.path.exists(d):
@@ -107,7 +132,7 @@ def resource_dir(sub_dir: str = ""):
 
 
 def task_dir(sub_dir: str = ""):
-    d = os.path.join(storage_dir(), "tasks")
+    d = data_dir("storage/tasks")
     if sub_dir:
         d = os.path.join(d, sub_dir)
     if not os.path.exists(d):
@@ -362,3 +387,15 @@ def load_locales(i18n_dir):
 
 def parse_extension(filename):
     return Path(filename).suffix.lower().lstrip('.')
+
+
+def get_system_locale():
+    """返回系统语言代码（zh/en/ja等），默认 zh"""
+    import locale
+    try:
+        lang, _ = locale.getdefaultlocale()
+        if lang:
+            return lang.split("_")[0]
+    except Exception:
+        pass
+    return "zh"

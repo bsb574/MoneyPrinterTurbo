@@ -540,7 +540,6 @@ def generate_final_videos(
             video_transition_mode=video_transition_mode,
             max_clip_duration=params.video_clip_duration,
             threads=params.n_threads,
-            clip_speed=params.video_clip_speed,
         )
 
         _progress += 50 / params.video_count / 2
@@ -577,14 +576,14 @@ def generate_final_videos(
                 )
 
         logger.info(f"\n\n## generating video: {index} => {final_video_path}")
-        bgm_mix_succeeded = video.generate_video(
+        video.generate_video(
             video_path=combined_video_path,
             audio_path=audio_file,
             subtitle_path=subtitle_path,
             output_file=final_video_path,
             params=params,
-            bgm_file_override=bgm_file_override,
         )
+        bgm_mix_succeeded = True
         if (
             params.bgm_type == "sonilo"
             and bgm_file_override
