@@ -157,8 +157,6 @@ def get_excludes():
 
 def get_pyinstaller_args():
     """构建 PyInstaller 命令行参数"""
-    from PyInstaller.__main__ import _make_argument_parser
-
     data_files = get_data_files()
     hidden = get_hidden_imports()
     excludes = get_excludes()
