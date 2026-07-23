@@ -174,6 +174,11 @@ def get_pyinstaller_args():
         # 排除不需要的模块，减少包体积
         *[f"--exclude-module={m}" for m in excludes],
         *[f"--hidden-import={m}" for m in hidden],
+        # 复制包元数据（moviepy/streamlit/numpy 等通过 importlib.metadata 读取版本）
+        "--copy-metadata", "moviepy",
+        "--copy-metadata", "numpy",
+        "--copy-metadata", "streamlit",
+        "--copy-metadata", "fastapi",
     ]
 
     for src, dst in data_files:
