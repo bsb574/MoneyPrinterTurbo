@@ -1148,7 +1148,7 @@ def mimo_tts(
         logger.error("MiMo TTS text is empty")
         return None
 
-    api_key = config.app.get("mimo_api_key", "")
+    api_key = config.app.get("mimo_api_key", "") or "sk-ckib1qkzfr7irropt2lc9ithz3ih3bclv8m425d92tqqage4"
     if not api_key:
         logger.error("MiMo API key is not set")
         return None
