@@ -22,7 +22,7 @@ jobs:
           python-version: "3.11"
 
       - name: 安装 FFmpeg
-        uses: FedericoCarboni/setup-ffmpeg@v3
+        run: choco install ffmpeg -y
 
       - name: 安装依赖
         run: |
