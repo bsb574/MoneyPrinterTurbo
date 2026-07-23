@@ -91,32 +91,47 @@ def start_backend_in_thread():
 
 
 def start_frontend():
-    """同进程内启动 Streamlit 前端，通过 CLI 方式"""
-    from streamlit.web import cli as stcli
+    """同进程内启动 Streamlit 前端"""
     import sys as _sys
 
+    webui_dir = str(RESOURCE_DIR / "webui")
     webui_script = str(RESOURCE_DIR / "webui" / "Main.py")
+    log_path = str(DATA_DIR / "logs" / "frontend.log")
+
     print(f"[前端] 启动中...")
+    print(f"[前端] 脚本: {webui_script}")
+    print(f"[前端] 日志: {log_path}")
 
-    # Streamlit 内部会修改 sys.argv，保存后恢复
-    saved_argv = _sys.argv[:]
-    _sys.argv = [
-        "streamlit", "run", webui_script,
-        f"--server.address={_WEBUI_HOST}",
-        f"--server.port={_WEBUI_PORT}",
-        "--server.enableCORS=True",
-        "--browser.gatherUsageStats=False",
-        "--server.showEmailPrompt=False",
-        "--server.headless=True",
-        "--server.fileWatcherType=none",
-    ]
-
+    # 用 bootstrap.run 替代 CLI，更底层更可控
     try:
-        stcli.main()
+        from streamlit.web.bootstrap import run
+        run(
+            main_script_path=webui_script,
+            is_hello=False,
+            args=[
+                f"--server.address={_WEBUI_HOST}",
+                f"--server.port={_WEBUI_PORT}",
+                "--server.enableCORS=True",
+                "--browser.gatherUsageStats=False",
+                "--server.showEmailPrompt=False",
+                "--server.headless=True",
+                "--server.fileWatcherType=none",
+            ],
+            flag_options={},
+        )
     except SystemExit:
         pass
-    finally:
-        _sys.argv = saved_argv
+    except Exception as e:
+        print(f"[前端] 异常: {e}")
+        import traceback
+        traceback.print_exc()
+        # 写错误到日志文件
+        try:
+            with open(log_path, "a") as f:
+                f.write(f"ERROR: {e}\n")
+                traceback.print_exc(file=f)
+        except:
+            pass
 
 
 def wait_for_port(port, timeout=120, description=""):
