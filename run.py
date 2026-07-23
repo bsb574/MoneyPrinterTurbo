@@ -1,21 +1,22 @@
 #!/usr/bin/env python3
 """
-口播视频生成 - 统一启动入口
+口播视频生成 - 统一启动入口（单进程版）
 
-同时启动：
-  1. FastAPI 后端（提供 API + 视频下载）
-  2. Streamlit 前端（WebUI 操作界面）
+在同一个进程中启动：
+  1. FastAPI 后端 — uvicorn 后台线程
+  2. Streamlit 前端 — 同进程内启动
 
 启动后在浏览器打开 http://127.0.0.1:8501 使用。
 """
 
 import os
 import sys
-import subprocess
 import time
 import signal
 import atexit
+import threading
 import webbrowser
+import socket
 from pathlib import Path
 
 
@@ -36,27 +37,14 @@ DATA_DIR = _get_data_dir()
 RESOURCE_DIR = Path(sys._MEIPASS) if (getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS')) else Path(__file__).resolve().parent
 
 os.environ["MPT_DATA_DIR"] = str(DATA_DIR)
-os.environ["MPT_RESOURCE_DIR"] = str(RESOURCE_DIR)
 os.environ.setdefault("PYTHONPATH", str(RESOURCE_DIR))
-os.environ.setdefault("MPT_WEBUI_HOST", "127.0.0.1")
-os.environ.setdefault("MPT_WEBUI_PORT", "8501")
 
-_BACKEND_PORT = "8080"
-_WEBUI_PORT = "8501"
 _WEBUI_HOST = "127.0.0.1"
-_processes = []
+_WEBUI_PORT = 8501
+_BACKEND_PORT = 8080
 
-
-def _find_python():
-    if getattr(sys, 'frozen', False):
-        return sys.executable
-    venv_py = RESOURCE_DIR / "venv" / "bin" / "python"
-    if sys.platform != "win32" and venv_py.exists():
-        return str(venv_py)
-    venv_py_w = RESOURCE_DIR / "venv" / "Scripts" / "python.exe"
-    if sys.platform == "win32" and venv_py_w.exists():
-        return str(venv_py_w)
-    return sys.executable
+_backend_thread = None
+_backend_server = None
 
 
 def _load_backend_port():
@@ -65,96 +53,100 @@ def _load_backend_port():
         cfg_path = DATA_DIR / "config.toml"
         if cfg_path.exists():
             cfg = toml.load(str(cfg_path))
-            return str(cfg.get("listen_port", 8080))
+            return int(cfg.get("listen_port", 8080))
     except Exception:
         pass
-    return "8080"
+    return 8080
 
 
-def start_backend():
-    python_exe = _find_python()
-    backend_script = str(RESOURCE_DIR / "main.py")
-    logs_dir = DATA_DIR / "logs"
-    logs_dir.mkdir(parents=True, exist_ok=True)
-    log_file = open(str(logs_dir / "backend.log"), "a")
-    proc = subprocess.Popen(
-        [python_exe, backend_script],
-        stdout=log_file, stderr=subprocess.STDOUT,
-        env={**os.environ},
-    )
-    _processes.append(("backend", proc, log_file))
-    print(f"[后端] 启动中... PID={proc.pid}")
-    return proc
+def _port_in_use(port, host="127.0.0.1"):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex((host, port)) == 0
+
+
+def start_backend_in_thread():
+    """在后台线程中启动 FastAPI 后端（uvicorn）"""
+    import uvicorn
+    from app.asgi import app
+    from app.config import config as app_config
+    import asyncio
+
+    host = app_config.listen_host if hasattr(app_config, 'listen_host') else "127.0.0.1"
+    port = _BACKEND_PORT
+
+    config = uvicorn.Config(app, host=host, port=port, log_level="warning")
+    server = uvicorn.Server(config)
+
+    global _backend_server
+    _backend_server = server
+
+    print(f"[后端] 启动中... http://{host}:{port}/docs")
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(server.serve())
+    except Exception as e:
+        print(f"[后端] 异常: {e}")
+    print("[后端] 已停止")
 
 
 def start_frontend():
-    python_exe = _find_python()
+    """同进程内启动 Streamlit 前端，通过 CLI 方式"""
+    from streamlit.web import cli as stcli
+    import sys as _sys
+
     webui_script = str(RESOURCE_DIR / "webui" / "Main.py")
-    logs_dir = DATA_DIR / "logs"
-    logs_dir.mkdir(parents=True, exist_ok=True)
-    log_file = open(str(logs_dir / "frontend.log"), "a")
-    proc = subprocess.Popen(
-        [python_exe, "-m", "streamlit", "run", webui_script,
-         f"--server.address={_WEBUI_HOST}", f"--server.port={_WEBUI_PORT}",
-         "--server.enableCORS=True", "--browser.gatherUsageStats=False",
-         "--server.showEmailPrompt=False"],
-        stdout=log_file, stderr=subprocess.STDOUT,
-        env={**os.environ},
-    )
-    _processes.append(("frontend", proc, log_file))
-    print(f"[前端] 启动中... PID={proc.pid}")
-    return proc
+    print(f"[前端] 启动中...")
+
+    # Streamlit 内部会修改 sys.argv，保存后恢复
+    saved_argv = _sys.argv[:]
+    _sys.argv = [
+        "streamlit", "run", webui_script,
+        f"--server.address={_WEBUI_HOST}",
+        f"--server.port={_WEBUI_PORT}",
+        "--server.enableCORS=True",
+        "--browser.gatherUsageStats=False",
+        "--server.showEmailPrompt=False",
+        "--server.headless=True",
+        "--server.fileWatcherType=none",
+    ]
+
+    try:
+        stcli.main()
+    except SystemExit:
+        pass
+    finally:
+        _sys.argv = saved_argv
 
 
-def wait_for_ports(timeout=30):
-    import socket
-    backend_ready = False
-    frontend_ready = False
-    start = time.time()
-    while time.time() - start < timeout:
-        if not backend_ready:
-            s = socket.socket()
-            try:
-                s.connect((_WEBUI_HOST, int(_BACKEND_PORT)))
-                backend_ready = True
-                print(f"[后端] 就绪 → http://{_WEBUI_HOST}:{_BACKEND_PORT}/docs")
-            except: pass
-            finally: s.close()
-        if not frontend_ready:
-            s = socket.socket()
-            try:
-                s.connect((_WEBUI_HOST, int(_WEBUI_PORT)))
-                frontend_ready = True
-                print(f"[前端] 就绪 → http://{_WEBUI_HOST}:{_WEBUI_PORT}")
-            except: pass
-            finally: s.close()
-        if backend_ready and frontend_ready:
+def wait_for_port(port, timeout=120, description=""):
+    """等待端口就绪"""
+    elapsed = 0
+    while elapsed < timeout:
+        if _port_in_use(port, _WEBUI_HOST):
+            print(f"[{description}] 就绪 → http://{_WEBUI_HOST}:{port}")
             return True
         time.sleep(0.5)
+        elapsed += 0.5
     return False
 
 
 def cleanup():
-    for name, proc, log_file in _processes:
-        if proc.poll() is None:
-            print(f"停止 {name} PID={proc.pid}...")
-            if sys.platform == "win32":
-                proc.terminate()
-            else:
-                proc.send_signal(signal.SIGTERM)
-            try: proc.wait(timeout=5)
-            except subprocess.TimeoutExpired: proc.kill()
-        log_file.close()
+    print("\n正在停止服务...")
+    if _backend_server:
+        _backend_server.should_exit = True
+    time.sleep(1)
 
 
 def main():
     global _BACKEND_PORT
     _BACKEND_PORT = _load_backend_port()
 
+    # 确保数据目录存在
     for sub in ["logs", "tasks", "cache_videos"]:
         (DATA_DIR / sub).mkdir(parents=True, exist_ok=True)
 
-    # 首次运行：从打包资源复制 config.example.toml 为 config.toml
+    # 首次运行：复制配置模板
     config_dst = DATA_DIR / "config.toml"
     if not config_dst.exists():
         example_src = RESOURCE_DIR / "config.example.toml"
@@ -164,41 +156,42 @@ def main():
             import shutil
             shutil.copy2(str(example_src), str(config_dst))
             print(f"[初始化] 已创建配置文件: {config_dst}")
-    # 设置环境变量让 app/config 使用数据目录下的配置
     os.environ["MPT_CONFIG_FILE"] = str(config_dst)
 
-    print("=" * 50)
-    print("  口播视频生成 1.0")
-    print("=" * 50)
+    print("=" * 60)
+    print("  口播视频生成 1.0 (单进程模式)")
+    print("=" * 60)
     print(f"  数据目录: {DATA_DIR}")
     print(f"  资源目录: {RESOURCE_DIR}")
-    print("=" * 50)
+    print("=" * 60)
 
     atexit.register(cleanup)
     signal.signal(signal.SIGINT, lambda s, f: sys.exit(0))
     signal.signal(signal.SIGTERM, lambda s, f: sys.exit(0))
 
-    start_backend()
+    # 后台线程启动 FastAPI
+    import asyncio
+    backend_thread = threading.Thread(target=start_backend_in_thread, daemon=True)
+    backend_thread.start()
+
+    # 等待后端就绪
+    print("\n等待后端启动...")
+    if not wait_for_port(_BACKEND_PORT, timeout=60, description="后端"):
+        print("\n⚠️ 后端启动超时，请检查配置")
+        sys.exit(1)
+
+    # 后端 OK，启动前端
     time.sleep(1)
-    start_frontend()
+    print(f"\n打开浏览器访问: http://{_WEBUI_HOST}:{_WEBUI_PORT}")
 
-    print("\n等待服务启动...")
-    ready = wait_for_ports(timeout=60)
-    if ready:
-        url = f"http://{_WEBUI_HOST}:{_WEBUI_PORT}"
-        print(f"\n✅ 启动完成！打开浏览器访问: {url}")
-        try: webbrowser.open(url)
-        except: pass
-    else:
-        print("\n⚠️ 服务启动超时，请检查日志: " + str(DATA_DIR / "logs"))
-
-    print("\n按 Ctrl+C 停止所有服务")
+    url = f"http://{_WEBUI_HOST}:{_WEBUI_PORT}"
     try:
-        while all(p.poll() is None for _, p, _ in _processes):
-            time.sleep(1)
-    except KeyboardInterrupt:
+        webbrowser.open(url)
+    except Exception:
         pass
-    print("\n正在停止服务...")
+
+    # 同进程内启动 Streamlit（阻塞直到退出）
+    start_frontend()
 
 
 if __name__ == "__main__":
