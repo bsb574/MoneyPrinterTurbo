@@ -5,29 +5,38 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>口播视频生成 1.0</title>
 <style>
-:root { --bg: #0f0f0f; --card: #1a1a2e; --text: #e0e0e0; --accent: #667eea; --danger: #e74c3c; --success: #2ecc71; --border: #2a2a3e; }
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; display: flex; min-height: 100vh; }
-.sidebar { width: 380px; min-width: 380px; background: var(--card); padding: 20px; border-right: 1px solid var(--border); overflow-y: auto; height: 100vh; position: sticky; top: 0; }
-.main { flex: 1; padding: 20px; overflow-y: auto; height: 100vh; }
-h1 { font-size: 1.3em; margin-bottom: 16px; color: var(--accent); }
-h2 { font-size: 1.0em; margin: 12px 0 8px; color: #aaa; }
-label { display: block; margin: 8px 0 3px; font-size: 0.82em; color: #aaa; }
-input, select, textarea { width: 100%; padding: 7px 9px; border-radius: 5px; border: 1px solid var(--border); background: #111; color: var(--text); font-size: 0.88em; }
-textarea { resize: vertical; min-height: 140px; font-family: inherit; }
-button { background: var(--accent); color: #fff; border: none; padding: 9px 16px; border-radius: 5px; cursor: pointer; font-size: 0.9em; margin: 4px 4px 4px 0; }
-button:hover { opacity: 0.85; }
-button:disabled { opacity: 0.4; cursor: not-allowed; }
-.card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 10px; }
-#log { background: #000; border-radius: 6px; padding: 10px; font-family: "Cascadia Code", "Fira Code", monospace; font-size: 0.78em; max-height: 240px; overflow-y: auto; white-space: pre-wrap; color: #888; margin-bottom: 10px; }
-#preview { max-width: 100%; max-height: 60vh; border-radius: 8px; display: none; margin-top: 10px; }
-.status { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.8em; }
-.status.processing { background: #f39c12; color: #000; }
-.status.complete { background: var(--success); color: #000; }
-.status.failed { background: var(--danger); color: #fff; }
-.spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.6s linear infinite; margin-right: 6px; vertical-align: middle; }
-@keyframes spin { to { transform: rotate(360deg); } }
-details summary { cursor: pointer; color: var(--accent); font-size: 0.9em; }
+:root{--bg:#0d1117;--card:#161b22;--text:#c9d1d9;--accent:#58a6ff;--danger:#f85149;--success:#3fb950;--border:#30363d;--muted:#8b949e}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);line-height:1.5;display:flex;min-height:100vh}
+.sidebar{width:420px;min-width:420px;background:var(--card);padding:16px;border-right:1px solid var(--border);overflow-y:auto;height:100vh;position:sticky;top:0}
+.main{flex:1;padding:16px;overflow-y:auto;height:100vh}
+h1{font-size:1.2em;margin-bottom:12px;color:var(--accent)}
+h2{font-size:0.95em;margin:10px 0 6px;color:var(--muted)}
+label{display:block;margin:6px 0 2px;font-size:0.78em;color:var(--muted)}
+input,select,textarea{width:100%;padding:6px 8px;border-radius:5px;border:1px solid var(--border);background:#0d1117;color:var(--text);font-size:0.85em}
+textarea{resize:vertical;min-height:120px;font-family:inherit}
+input[type=range]{padding:0;height:6px}
+button{background:var(--accent);color:#fff;border:none;padding:7px 14px;border-radius:5px;cursor:pointer;font-size:0.85em;margin:3px 3px 3px 0}
+button:hover{opacity:0.85}
+button:disabled{opacity:0.4;cursor:not-allowed}
+button.danger{background:var(--danger)}
+button.small{padding:3px 10px;font-size:0.78em}
+.row{display:flex;gap:8px}
+.row>*{flex:1}
+.card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px}
+#log{background:#000;border-radius:6px;padding:8px;font-family:"Cascadia Code",monospace;font-size:0.75em;max-height:220px;overflow-y:auto;white-space:pre-wrap;color:#888;margin-bottom:8px}
+#preview{max-width:100%;max-height:55vh;border-radius:8px;display:none;margin-top:8px}
+.status{display:inline-block;padding:2px 8px;border-radius:4px;font-size:0.78em}
+.status.ok{background:var(--success);color:#000}
+.status.busy{background:#d29922;color:#000}
+.status.err{background:var(--danger);color:#fff}
+.spinner{display:inline-block;width:12px;height:12px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.6s linear infinite;margin-right:5px;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+details{margin:6px 0}
+details summary{cursor:pointer;color:var(--accent);font-size:0.85em;padding:4px 0}
+details summary:hover{color:#79c0ff}
+.pw{font-family:monospace}
+.hint{font-size:0.72em;color:var(--muted);margin-top:2px}
 </style>
 </head>
 <body>
@@ -35,163 +44,247 @@ details summary { cursor: pointer; color: var(--accent); font-size: 0.9em; }
 <div class="sidebar">
   <h1>🎬 口播视频生成 1.0</h1>
 
-  <label>📝 视频文案</label>
-  <textarea id="script" placeholder="在此粘贴口播文案，每句一行..."></textarea>
+  <label>📝 视频文案 <span style="color:var(--muted)">（粘贴口播文案）</span></label>
+  <textarea id="script" placeholder="在此粘贴口播文案..."></textarea>
 
-  <details>
-    <summary>⚙️ 高级设置</summary>
-    <label>🎤 TTS 引擎</label>
-    <select id="tts_server" onchange="loadVoices()">
-      <option value="azure-tts-v1">Azure TTS (Edge)</option>
+  <details open>
+    <summary>🎤 语音设置</summary>
+    <label>TTS 引擎</label>
+    <select id="tts_server" onchange="onTTSServerChange()">
+      <option value="azure-tts-v1">Azure TTS (Edge) — 免费</option>
       <option value="siliconflow">SiliconFlow CosyVoice2</option>
       <option value="mimo-tts">Xiaomi MiMo TTS</option>
+      <option value="no-voice">无配音</option>
     </select>
-    <label>🔊 音色</label>
+    <label>音色</label>
     <select id="voice_name"></select>
-    <label>🎥 素材来源</label>
+    <div class="row">
+      <div><label>语速</label><input type="number" id="voice_rate" value="1.0" min="0.5" max="2.0" step="0.1"></div>
+      <div><label>音量</label><input type="number" id="voice_volume" value="1.0" min="0.5" max="2.0" step="0.1"></div>
+    </div>
+  </details>
+
+  <details>
+    <summary>🎥 视频设置</summary>
+    <label>素材来源</label>
     <select id="video_source">
       <option value="pexels">Pexels</option>
       <option value="pixabay">Pixabay</option>
+      <option value="coverr">Coverr</option>
     </select>
-    <label>📐 比例</label>
-    <select id="video_aspect">
-      <option value="9:16">9:16 竖屏</option>
-      <option value="16:9">16:9 横屏</option>
+    <div class="row">
+      <div><label>比例</label><select id="video_aspect"><option value="9:16">9:16 竖屏</option><option value="16:9">16:9 横屏</option><option value="1:1">1:1 方形</option></select></div>
+      <div><label>片段时长 (秒)</label><input type="number" id="video_clip_duration" value="5" min="2" max="15"></div>
+    </div>
+    <label>转场模式</label>
+    <select id="video_transition_mode">
+      <option value="">无</option><option value="FadeIn">淡入</option><option value="FadeOut">淡出</option><option value="SlideIn">滑入</option><option value="SlideOut">滑出</option>
     </select>
-    <label>🔤 字号</label>
-    <input type="number" id="font_size" value="60" min="30" max="120">
-    <label>🎵 背景音乐</label>
-    <select id="bgm_type"><option value="random">随机</option><option value="">无</option></select>
+    <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="match_materials" style="width:auto"> 素材按文案顺序匹配</label>
   </details>
 
-  <button onclick="startGeneration()" id="genBtn" style="width:100%; margin-top:14px;">🚀 生成视频</button>
-  <div id="taskStatus" style="margin-top:8px;"></div>
-  <div style="margin-top:8px;font-size:0.75em;color:#555;">数据目录: <span id="dataDir"></span></div>
+  <details>
+    <summary>🔤 字幕设置</summary>
+    <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="subtitle_enabled" checked style="width:auto"> 启用字幕</label>
+    <div class="row">
+      <div><label>位置</label><select id="subtitle_position"><option value="bottom">底部</option><option value="center">居中</option><option value="top">顶部</option></select></div>
+      <div><label>字号</label><input type="number" id="font_size" value="60" min="30" max="120"></div>
+    </div>
+    <div class="row">
+      <div><label>文字颜色</label><input type="color" id="text_fore_color" value="#FFFFFF" style="height:32px"></div>
+      <div><label>描边颜色</label><input type="color" id="stroke_color" value="#000000" style="height:32px"></div>
+    </div>
+    <div><label>描边宽度</label><input type="range" id="stroke_width" value="1.5" min="0" max="8" step="0.5"><span style="font-size:0.7em;color:var(--muted)" id="stroke_width_val">1.5</span></div>
+    <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="subtitle_bg" checked style="width:auto"> 字幕背景</label>
+  </details>
+
+  <details>
+    <summary>🎵 音乐设置</summary>
+    <div class="row">
+      <div><label>背景音乐</label><select id="bgm_type"><option value="random">随机</option><option value="">无</option></select></div>
+      <div><label>音量</label><input type="number" id="bgm_volume" value="0.2" min="0" max="1" step="0.05"></div>
+    </div>
+  </details>
+
+  <details>
+    <summary>🔑 API 密钥</summary>
+    <label>DeepSeek API Key</label>
+    <input type="password" id="deepseek_key" placeholder="sk-...">
+    <label>Pexels API Key</label>
+    <input type="password" id="pexels_key" placeholder="多个用逗号分隔">
+    <label>Pixabay API Key</label>
+    <input type="password" id="pixabay_key" placeholder="多个用逗号分隔">
+    <label>SiliconFlow API Key</label>
+    <input type="password" id="siliconflow_key" placeholder="sk-...">
+    <label>MiMo API Key</label>
+    <input type="password" id="mimo_key" placeholder="...">
+    <button class="small" onclick="saveApiKeys()">💾 保存密钥</button>
+    <span id="keysSaved" style="font-size:0.75em;color:var(--success);display:none">已保存</span>
+  </details>
+
+  <button onclick="startGeneration()" id="genBtn" style="width:100%;margin-top:12px;padding:10px;font-size:0.95em">🚀 生成视频</button>
+  <div id="taskStatus" style="margin-top:6px;"></div>
 </div>
 
 <div class="main">
   <div class="card">
-    <h2>📋 日志</h2>
+    <h2>📋 生成日志</h2>
     <div id="log">准备就绪。</div>
   </div>
   <div class="card">
-    <h2>🎬 预览</h2>
+    <h2>🎬 视频预览</h2>
     <video id="preview" controls></video>
-    <div id="previewPlaceholder" style="color:#555; padding:30px; text-align:center;">视频生成后将在此预览</div>
+    <div id="previewPlaceholder" style="color:var(--muted);padding:40px;text-align:center">视频生成后将在此预览</div>
   </div>
 </div>
 
 <script>
-function log(msg) {
-  const el = document.getElementById('log');
-  const t = new Date().toLocaleTimeString();
-  el.textContent = el.textContent.replace('准备就绪。\n','').replace('准备就绪。','') + t + '  ' + msg + '\n';
-  el.scrollTop = el.scrollHeight;
-}
+const K_CFG = {};
 
-async function api(method, path, body) {
-  const opts = { method, headers: {} };
-  if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
-  const res = await fetch(path, opts);
-  if (!res.ok) { const txt = await res.text(); throw new Error(res.status + ': ' + txt.substring(0, 300)); }
+function $(id){return document.getElementById(id)}
+function log(msg){const el=$('log');const t=new Date().toLocaleTimeString();el.textContent=el.textContent.replace(/准备就绪。\n?/,'').replace('准备就绪。','')+t+'  '+msg+'\n';el.scrollTop=el.scrollHeight}
+function val(id){return $(id).value}
+function checked(id){return $(id).checked}
+function intVal(id){return parseInt($(id).value)||0}
+function floatVal(id){return parseFloat($(id).value)||0}
+
+async function api(method,path,body){
+  const opts={method,headers:{}};
+  if(body){opts.headers['Content-Type']='application/json';opts.body=JSON.stringify(body)}
+  const res=await fetch(path,opts);
+  if(!res.ok){const txt=await res.text();throw new Error(res.status+': '+txt.substring(0,300))}
   return res.json();
 }
 
-function loadVoices() {
-  const server = document.getElementById('tts_server').value;
-  const voices = {
-    'azure-tts-v1': [
-      {id:'zh-CN-XiaoxiaoNeural-Female', name:'晓晓 (女)'},
-      {id:'zh-CN-YunxiNeural-Male', name:'云希 (男)'},
-      {id:'zh-CN-YunyangNeural-Male', name:'云扬 (男)'},
-      {id:'zh-CN-XiaoyiNeural-Female', name:'晓伊 (女)'},
-      {id:'zh-CN-YunjianNeural-Male', name:'云健 (男)'},
-      {id:'zh-CN-XiaochenNeural-Female', name:'晓辰 (女)'},
-    ],
-    'siliconflow': [
-      {id:'siliconflow:FunAudioLLM/CosyVoice2-0.5B:alex-Male', name:'Alex (男)'},
-      {id:'siliconflow:FunAudioLLM/CosyVoice2-0.5B:anna-Female', name:'Anna (女)'},
-      {id:'siliconflow:FunAudioLLM/CosyVoice2-0.5B:bella-Female', name:'Bella (女)'},
-    ],
-    'mimo-tts': [
-      {id:'mimo:冰糖-Female', name:'冰糖 (女)'},
-      {id:'mimo:茉莉-Female', name:'茉莉 (女)'},
-      {id:'mimo:苏打-Male', name:'苏打 (男)'},
-      {id:'mimo:白桦-Male', name:'白桦 (男)'},
-    ],
-  };
-  const sel = document.getElementById('voice_name');
-  sel.innerHTML = '';
-  (voices[server]||[]).forEach(v => {
-    const o = document.createElement('option'); o.value=v.id; o.textContent=v.name; sel.appendChild(o);
-  });
+const VOICES={
+  'azure-tts-v1':[
+    {id:'zh-CN-XiaoxiaoNeural-Female',name:'晓晓 (女)'},
+    {id:'zh-CN-YunxiNeural-Male',name:'云希 (男)'},
+    {id:'zh-CN-YunyangNeural-Male',name:'云扬 (男)'},
+    {id:'zh-CN-XiaoyiNeural-Female',name:'晓伊 (女)'},
+    {id:'zh-CN-YunjianNeural-Male',name:'云健 (男)'},
+    {id:'zh-CN-XiaochenNeural-Female',name:'晓辰 (女)'},
+    {id:'zh-CN-XiaohanNeural-Female',name:'晓涵 (女)'},
+    {id:'zh-CN-XiaomengNeural-Female',name:'晓梦 (女)'},
+  ],
+  'siliconflow':[
+    {id:'siliconflow:FunAudioLLM/CosyVoice2-0.5B:alex-Male',name:'Alex (男)'},
+    {id:'siliconflow:FunAudioLLM/CosyVoice2-0.5B:anna-Female',name:'Anna (女)'},
+    {id:'siliconflow:FunAudioLLM/CosyVoice2-0.5B:bella-Female',name:'Bella (女)'},
+    {id:'siliconflow:FunAudioLLM/CosyVoice2-0.5B:benjamin-Male',name:'Benjamin (男)'},
+    {id:'siliconflow:FunAudioLLM/CosyVoice2-0.5B:charles-Male',name:'Charles (男)'},
+    {id:'siliconflow:FunAudioLLM/CosyVoice2-0.5B:claire-Female',name:'Claire (女)'},
+    {id:'siliconflow:FunAudioLLM/CosyVoice2-0.5B:david-Male',name:'David (男)'},
+    {id:'siliconflow:FunAudioLLM/CosyVoice2-0.5B:diana-Female',name:'Diana (女)'},
+  ],
+  'mimo-tts':[
+    {id:'mimo:mimo_default-Female',name:'默认 (女)'},
+    {id:'mimo:冰糖-Female',name:'冰糖 (女)'},{id:'mimo:茉莉-Female',name:'茉莉 (女)'},
+    {id:'mimo:苏打-Male',name:'苏打 (男)'},{id:'mimo:白桦-Male',name:'白桦 (男)'},
+    {id:'mimo:Mia-Female',name:'Mia (女)'},{id:'mimo:Chloe-Female',name:'Chloe (女)'},
+    {id:'mimo:Milo-Male',name:'Milo (男)'},{id:'mimo:Dean-Male',name:'Dean (男)'},
+  ],
+  'no-voice':[{id:'no-voice',name:'无配音'}],
+};
+
+function onTTSServerChange(){loadVoices()}
+
+function loadVoices(){
+  const v=VOICES[val('tts_server')]||[];
+  const sel=$('voice_name');
+  sel.innerHTML='';
+  v.forEach(x=>{const o=document.createElement('option');o.value=x.id;o.textContent=x.name;sel.appendChild(o)});
 }
 
-async function startGeneration() {
-  const script = document.getElementById('script').value.trim();
-  if (!script) { alert('请输入视频文案'); return; }
-  const btn = document.getElementById('genBtn');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span>生成中...';
-  document.getElementById('preview').style.display = 'none';
-  document.getElementById('previewPlaceholder').style.display = 'block';
-  document.getElementById('taskStatus').innerHTML = '<span class="status processing">⏳ 处理中</span>';
-  document.getElementById('log').textContent = '';
+function loadConfig(){
+  // 从 localStorage 恢复密钥
+  ['deepseek_key','pexels_key','pixabay_key','siliconflow_key','mimo_key'].forEach(k=>{
+    const v=localStorage.getItem('cfg_'+k); if(v) $(k).value=v;
+  });
+  const saved=localStorage.getItem('cfg_form');
+  if(saved) try{const d=JSON.parse(saved);Object.keys(d).forEach(k=>{const e=$(k);if(e)e.value=d[k]})}catch(e){}
+}
 
-  const params = {
-    video_subject: '', video_script: script,
-    video_source: document.getElementById('video_source').value,
-    video_aspect: document.getElementById('video_aspect').value,
-    voice_name: document.getElementById('voice_name').value,
-    font_size: parseInt(document.getElementById('font_size').value)||60,
-    bgm_type: document.getElementById('bgm_type').value,
-    subtitle_position: 'bottom', subtitle_enabled: true, video_count: 1, n_threads: 2,
+function saveFormState(){
+  const d={};
+  ['tts_server','voice_name','voice_rate','voice_volume','video_source','video_aspect',
+   'video_clip_duration','video_transition_mode','font_size','text_fore_color','stroke_color',
+   'stroke_width','bgm_type','bgm_volume'].forEach(k=>d[k]=$(k).value);
+  d.subtitle_enabled=checked('subtitle_enabled');
+  d.subtitle_bg=checked('subtitle_bg');
+  d.match_materials=checked('match_materials');
+  d.subtitle_position=val('subtitle_position');
+  localStorage.setItem('cfg_form',JSON.stringify(d));
+}
+
+function saveApiKeys(){
+  ['deepseek_key','pexels_key','pixabay_key','siliconflow_key','mimo_key'].forEach(k=>{
+    localStorage.setItem('cfg_'+k,$(k).value);
+  });
+  $('keysSaved').style.display='inline'; setTimeout(()=>$('keysSaved').style.display='none',2000);
+}
+
+// 滑块联动
+$('stroke_width').oninput=function(){$('stroke_width_val').textContent=this.value};
+$('tts_server').onchange=function(){onTTSServerChange();saveFormState()};
+
+async function startGeneration(){
+  const script=val('script').trim();
+  if(!script){alert('请输入视频文案');return}
+  saveFormState();
+  const btn=$('genBtn');
+  btn.disabled=true;btn.innerHTML='<span class="spinner"></span>生成中...';
+  $('preview').style.display='none';$('previewPlaceholder').style.display='block';
+  $('taskStatus').innerHTML='<span class="status busy">⏳ 处理中</span>';
+  $('log').textContent='';
+
+  const params={
+    video_subject:'',video_script:script,
+    video_source:val('video_source'),video_aspect:val('video_aspect'),
+    video_clip_duration:intVal('video_clip_duration')||5,
+    video_transition_mode:val('video_transition_mode')||null,
+    match_materials_to_script:checked('match_materials'),
+    voice_name:val('voice_name'),voice_rate:floatVal('voice_rate')||1.0,
+    voice_volume:floatVal('voice_volume')||1.0,
+    bgm_type:val('bgm_type'),bgm_volume:floatVal('bgm_volume')||0.2,
+    subtitle_enabled:checked('subtitle_enabled'),
+    subtitle_position:val('subtitle_position'),
+    font_size:intVal('font_size')||60,
+    text_fore_color:val('text_fore_color'),
+    text_background_color:checked('subtitle_bg'),
+    stroke_color:val('stroke_color'),
+    stroke_width:floatVal('stroke_width')||1.5,
+    video_count:1,n_threads:2,
   };
 
-  try {
+  try{
     log('提交视频生成任务...');
-    const result = await api('POST', '/api/v1/videos', params);
-    const taskId = result.data.task_id;
-    log('任务ID: ' + taskId);
+    const result=await api('POST','/api/v1/videos',params);
+    const taskId=result.data.task_id;
+    log('任务ID: '+taskId);
 
-    let done = false;
-    while (!done) {
-      await new Promise(r => setTimeout(r, 3000));
-      try {
-        const status = await api('GET', '/api/v1/tasks/' + taskId);
-        const s = status.data;
-        if (s.progress !== undefined) log('进度: ' + Math.round(s.progress) + '%');
-        if (s.msg) log('   ' + s.msg);
-        if (s.state === 3) {
-          done = true;
-          document.getElementById('taskStatus').innerHTML = '<span class="status complete">✅ 完成</span>';
-          if (s.videos && s.videos.length > 0) {
-            const vp = s.videos[0];
-            const m = vp.match(/tasks\/(.+?)\/(final-.+)/);
-            if (m) {
-              const url = '/api/v1/download/' + m[1] + '/' + m[2];
-              const pv = document.getElementById('preview');
-              pv.src = url; pv.style.display = 'block';
-              document.getElementById('previewPlaceholder').style.display = 'none';
-              log('视频已就绪 ✓');
-            }
-          }
-        } else if (s.state === 4 || s.state === 5) {
-          done = true;
-          document.getElementById('taskStatus').innerHTML = '<span class="status failed">❌ 失败</span>';
-          log('生成失败: ' + JSON.stringify(s));
+    let done=false,lastProgress=-1;
+    while(!done){
+      await new Promise(r=>setTimeout(r,3000));
+      try{
+        const status=await api('GET','/api/v1/tasks/'+taskId);
+        const s=status.data;
+        if(s.progress!==undefined&&s.progress!==lastProgress){
+          log('进度: '+Math.round(s.progress)+'%'); lastProgress=s.progress;
         }
-      } catch(e) { log('查询状态异常: ' + e.message); }
+        if(s.msg&&s.msg!==lastProgress) log('  '+s.msg);
+        if(s.state===3){done=true;$('taskStatus').innerHTML='<span class="status ok">✅ 完成</span>';
+          if(s.videos&&s.videos.length>0){const vp=s.videos[0];const m=vp.match(/tasks\/(.+?)\/(final-.+)/);
+            if(m){const url='/api/v1/download/'+m[1]+'/'+m[2];$('preview').src=url;$('preview').style.display='block';$('previewPlaceholder').style.display='none';log('视频已就绪 ✓');}}}
+        else if(s.state===4||s.state===5){done=true;$('taskStatus').innerHTML='<span class="status err">❌ 失败</span>';log('生成失败');}
+      }catch(e){log('查询异常: '+e.message)}
     }
-  } catch(e) {
-    log('错误: ' + e.message);
-    document.getElementById('taskStatus').innerHTML = '<span class="status failed">❌ ' + e.message + '</span>';
-  } finally {
-    btn.disabled = false; btn.textContent = '🚀 生成视频';
-  }
+  }catch(e){log('错误: '+e.message);$('taskStatus').innerHTML='<span class="status err">❌ '+e.message+'</span>'}
+  finally{btn.disabled=false;btn.textContent='🚀 生成视频'}
 }
 
 loadVoices();
+loadConfig();
 </script>
 </body>
 </html>
