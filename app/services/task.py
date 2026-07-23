@@ -366,6 +366,7 @@ def generate_audio(task_id, params, video_script):
 
     if not custom_audio_file:
         logger.info("no custom audio file provided, using TTS to generate audio.")
+        sm.state.update_task(task_id, progress=21, msg="正在生成语音 (TTS)...")
         audio_file = path.join(utils.task_dir(task_id), "audio.mp3")
         # 兼容读取 reference_audio_path（声纹克隆用）
         ref_audio = getattr(params, "reference_audio_path", None) or getattr(params, "reference_audio", None)
