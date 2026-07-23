@@ -179,6 +179,8 @@ def get_pyinstaller_args():
         "--copy-metadata", "numpy",
         "--copy-metadata", "streamlit",
         "--copy-metadata", "fastapi",
+        # Runtime hook: patch importlib.metadata.version for frozen environment
+        "--runtime-hook", str(ROOT_DIR / "runtime_hook.py"),
     ]
 
     for src, dst in data_files:
