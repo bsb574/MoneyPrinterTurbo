@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
 """
-口播视频生成 - 统一启动入口（单进程版）
+口播视频生成 - 单进程启动入口
 
-在同一个进程中启动：
-  1. FastAPI 后端 — uvicorn 后台线程
-  2. Streamlit 前端 — 同进程内启动
-
-启动后在浏览器打开 http://127.0.0.1:8501 使用。
+启动 FastAPI 后端，浏览器打开内置 HTML 前端。
+无需 Streamlit，打包体积小、启动快。
 """
 
 import os
@@ -21,7 +18,6 @@ from pathlib import Path
 
 
 def _get_data_dir():
-    """获取用户数据目录（可写）。PyInstaller打包后不写入只读的_MEPASS"""
     if getattr(sys, 'frozen', False):
         if sys.platform == "darwin":
             return Path.home() / "Library" / "Application Support" / "MoneyPrinterTurbo"
@@ -35,53 +31,37 @@ def _get_data_dir():
 
 DATA_DIR = _get_data_dir()
 RESOURCE_DIR = Path(sys._MEIPASS) if (getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS')) else Path(__file__).resolve().parent
-
 os.environ["MPT_DATA_DIR"] = str(DATA_DIR)
-os.environ.setdefault("PYTHONPATH", str(RESOURCE_DIR))
 
-_WEBUI_HOST = "127.0.0.1"
-_WEBUI_PORT = 8501
-_BACKEND_PORT = 8080
-
-_backend_thread = None
+_WEB_HOST = "127.0.0.1"
+_WEB_PORT = 3000
 _backend_server = None
 
 
-def _load_backend_port():
+def _load_port():
     try:
         import toml
-        cfg_path = DATA_DIR / "config.toml"
-        if cfg_path.exists():
-            cfg = toml.load(str(cfg_path))
-            return int(cfg.get("listen_port", 8080))
+        cfg = DATA_DIR / "config.toml"
+        if cfg.exists():
+            return int(toml.load(str(cfg)).get("listen_port", _WEB_PORT))
     except Exception:
         pass
-    return 8080
+    return _WEB_PORT
 
 
-def _port_in_use(port, host="127.0.0.1"):
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        return s.connect_ex((host, port)) == 0
-
-
-def start_backend_in_thread():
-    """在后台线程中启动 FastAPI 后端（uvicorn）"""
+def start_backend():
+    """在后台线程中启动 uvicorn"""
     import uvicorn
     from app.asgi import app
-    from app.config import config as app_config
-    import asyncio
 
-    host = app_config.listen_host if hasattr(app_config, 'listen_host') else "127.0.0.1"
-    port = _BACKEND_PORT
-
-    config = uvicorn.Config(app, host=host, port=port, log_level="warning")
+    config = uvicorn.Config(app, host=_WEB_HOST, port=_WEB_PORT, log_level="warning")
     server = uvicorn.Server(config)
-
     global _backend_server
     _backend_server = server
 
-    print(f"[后端] 启动中... http://{host}:{port}/docs")
+    print(f"[后端] http://{_WEB_HOST}:{_WEB_PORT}")
     try:
+        import asyncio
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         loop.run_until_complete(server.serve())
@@ -90,123 +70,79 @@ def start_backend_in_thread():
     print("[后端] 已停止")
 
 
-def start_frontend():
-    """同进程内启动 Streamlit 前端"""
-    import sys as _sys
-
-    webui_dir = str(RESOURCE_DIR / "webui")
-    webui_script = str(RESOURCE_DIR / "webui" / "Main.py")
-    log_path = str(DATA_DIR / "logs" / "frontend.log")
-
-    print(f"[前端] 启动中...")
-    print(f"[前端] 脚本: {webui_script}")
-    print(f"[前端] 日志: {log_path}")
-
-    # 用 bootstrap.run 替代 CLI，更底层更可控
-    try:
-        from streamlit.web.bootstrap import run
-        run(
-            main_script_path=webui_script,
-            is_hello=False,
-            args=[
-                f"--server.address={_WEBUI_HOST}",
-                f"--server.port={_WEBUI_PORT}",
-                "--server.enableCORS=True",
-                "--browser.gatherUsageStats=False",
-                "--server.showEmailPrompt=False",
-                "--server.headless=True",
-                "--server.fileWatcherType=none",
-            ],
-            flag_options={},
-        )
-    except SystemExit:
-        pass
-    except Exception as e:
-        print(f"[前端] 异常: {e}")
-        import traceback
-        traceback.print_exc()
-        # 写错误到日志文件
+def wait_for_port(port, timeout=30):
+    for _ in range(timeout * 2):
+        s = socket.socket()
         try:
-            with open(log_path, "a") as f:
-                f.write(f"ERROR: {e}\n")
-                traceback.print_exc(file=f)
-        except:
-            pass
-
-
-def wait_for_port(port, timeout=120, description=""):
-    """等待端口就绪"""
-    elapsed = 0
-    while elapsed < timeout:
-        if _port_in_use(port, _WEBUI_HOST):
-            print(f"[{description}] 就绪 → http://{_WEBUI_HOST}:{port}")
+            s.settimeout(0.5)
+            s.connect((_WEB_HOST, port))
+            s.close()
             return True
-        time.sleep(0.5)
-        elapsed += 0.5
+        except Exception:
+            time.sleep(0.5)
+        finally:
+            s.close()
     return False
 
 
 def cleanup():
-    print("\n正在停止服务...")
+    print("\n正在停止...")
     if _backend_server:
         _backend_server.should_exit = True
     time.sleep(1)
 
 
 def main():
-    global _BACKEND_PORT
-    _BACKEND_PORT = _load_backend_port()
+    global _WEB_PORT
+    _WEB_PORT = _load_port()
 
-    # 确保数据目录存在
     for sub in ["logs", "tasks", "cache_videos"]:
         (DATA_DIR / sub).mkdir(parents=True, exist_ok=True)
 
-    # 首次运行：复制配置模板
     config_dst = DATA_DIR / "config.toml"
     if not config_dst.exists():
-        example_src = RESOURCE_DIR / "config.example.toml"
-        if not example_src.exists():
-            example_src = RESOURCE_DIR / "config.toml"
-        if example_src.exists():
-            import shutil
-            shutil.copy2(str(example_src), str(config_dst))
-            print(f"[初始化] 已创建配置文件: {config_dst}")
+        for src_name in ["config.example.toml", "config.toml"]:
+            example = RESOURCE_DIR / src_name
+            if example.exists():
+                import shutil
+                shutil.copy2(str(example), str(config_dst))
+                print(f"[初始化] 已创建: {config_dst}")
+                break
     os.environ["MPT_CONFIG_FILE"] = str(config_dst)
 
-    print("=" * 60)
-    print("  口播视频生成 1.0 (单进程模式)")
-    print("=" * 60)
-    print(f"  数据目录: {DATA_DIR}")
-    print(f"  资源目录: {RESOURCE_DIR}")
-    print("=" * 60)
+    print("=" * 50)
+    print("  口播视频生成 1.0")
+    print("=" * 50)
+    print(f"  数据: {DATA_DIR}")
+    print(f"  资源: {RESOURCE_DIR}")
+    print("=" * 50)
 
     atexit.register(cleanup)
     signal.signal(signal.SIGINT, lambda s, f: sys.exit(0))
     signal.signal(signal.SIGTERM, lambda s, f: sys.exit(0))
 
-    # 后台线程启动 FastAPI
-    import asyncio
-    backend_thread = threading.Thread(target=start_backend_in_thread, daemon=True)
-    backend_thread.start()
+    # 后台线程启动后端
+    threading.Thread(target=start_backend, daemon=True).start()
 
-    # 等待后端就绪
-    print("\n等待后端启动...")
-    if not wait_for_port(_BACKEND_PORT, timeout=60, description="后端"):
-        print("\n⚠️ 后端启动超时，请检查配置")
+    if not wait_for_port(_WEB_PORT):
+        print(f"\n⚠️ 后端启动超时，请检查 {DATA_DIR}/logs/")
+        input("按回车退出...")
         sys.exit(1)
 
-    # 后端 OK，启动前端
-    time.sleep(1)
-    print(f"\n打开浏览器访问: http://{_WEBUI_HOST}:{_WEBUI_PORT}")
-
-    url = f"http://{_WEBUI_HOST}:{_WEBUI_PORT}"
+    url = f"http://{_WEB_HOST}:{_WEB_PORT}"
+    print(f"\n✅ 已启动: {url}")
     try:
         webbrowser.open(url)
     except Exception:
         pass
+    print("\n按 Ctrl+C 停止")
 
-    # 同进程内启动 Streamlit（阻塞直到退出）
-    start_frontend()
+    try:
+        while _backend_server and not _backend_server.should_exit:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        pass
+    print("\n再见。")
 
 
 if __name__ == "__main__":

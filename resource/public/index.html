@@ -1,19 +1,197 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <title>MoneyPrinterTurbo</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>口播视频生成 1.0</title>
+<style>
+:root { --bg: #0f0f0f; --card: #1a1a2e; --text: #e0e0e0; --accent: #667eea; --danger: #e74c3c; --success: #2ecc71; --border: #2a2a3e; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; display: flex; min-height: 100vh; }
+.sidebar { width: 380px; min-width: 380px; background: var(--card); padding: 20px; border-right: 1px solid var(--border); overflow-y: auto; height: 100vh; position: sticky; top: 0; }
+.main { flex: 1; padding: 20px; overflow-y: auto; height: 100vh; }
+h1 { font-size: 1.3em; margin-bottom: 16px; color: var(--accent); }
+h2 { font-size: 1.0em; margin: 12px 0 8px; color: #aaa; }
+label { display: block; margin: 8px 0 3px; font-size: 0.82em; color: #aaa; }
+input, select, textarea { width: 100%; padding: 7px 9px; border-radius: 5px; border: 1px solid var(--border); background: #111; color: var(--text); font-size: 0.88em; }
+textarea { resize: vertical; min-height: 140px; font-family: inherit; }
+button { background: var(--accent); color: #fff; border: none; padding: 9px 16px; border-radius: 5px; cursor: pointer; font-size: 0.9em; margin: 4px 4px 4px 0; }
+button:hover { opacity: 0.85; }
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 10px; }
+#log { background: #000; border-radius: 6px; padding: 10px; font-family: "Cascadia Code", "Fira Code", monospace; font-size: 0.78em; max-height: 240px; overflow-y: auto; white-space: pre-wrap; color: #888; margin-bottom: 10px; }
+#preview { max-width: 100%; max-height: 60vh; border-radius: 8px; display: none; margin-top: 10px; }
+.status { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.8em; }
+.status.processing { background: #f39c12; color: #000; }
+.status.complete { background: var(--success); color: #000; }
+.status.failed { background: var(--danger); color: #fff; }
+.spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.6s linear infinite; margin-right: 6px; vertical-align: middle; }
+@keyframes spin { to { transform: rotate(360deg); } }
+details summary { cursor: pointer; color: var(--accent); font-size: 0.9em; }
+</style>
 </head>
 <body>
-<h1>MoneyPrinterTurbo</h1>
-<a href="https://github.com/harry0703/MoneyPrinterTurbo">https://github.com/harry0703/MoneyPrinterTurbo</a>
-<p>
-    只需提供一个视频 主题 或 关键词 ，就可以全自动生成视频文案、视频素材、视频字幕、视频背景音乐，然后合成一个高清的短视频。
-</p>
 
-<p>
-    Simply provide a topic or keyword for a video, and it will automatically generate the video copy, video materials,
-    video subtitles, and video background music before synthesizing a high-definition short video.
-</p>
+<div class="sidebar">
+  <h1>🎬 口播视频生成 1.0</h1>
+
+  <label>📝 视频文案</label>
+  <textarea id="script" placeholder="在此粘贴口播文案，每句一行..."></textarea>
+
+  <details>
+    <summary>⚙️ 高级设置</summary>
+    <label>🎤 TTS 引擎</label>
+    <select id="tts_server" onchange="loadVoices()">
+      <option value="azure-tts-v1">Azure TTS (Edge)</option>
+      <option value="siliconflow">SiliconFlow CosyVoice2</option>
+      <option value="mimo-tts">Xiaomi MiMo TTS</option>
+    </select>
+    <label>🔊 音色</label>
+    <select id="voice_name"></select>
+    <label>🎥 素材来源</label>
+    <select id="video_source">
+      <option value="pexels">Pexels</option>
+      <option value="pixabay">Pixabay</option>
+    </select>
+    <label>📐 比例</label>
+    <select id="video_aspect">
+      <option value="9:16">9:16 竖屏</option>
+      <option value="16:9">16:9 横屏</option>
+    </select>
+    <label>🔤 字号</label>
+    <input type="number" id="font_size" value="60" min="30" max="120">
+    <label>🎵 背景音乐</label>
+    <select id="bgm_type"><option value="random">随机</option><option value="">无</option></select>
+  </details>
+
+  <button onclick="startGeneration()" id="genBtn" style="width:100%; margin-top:14px;">🚀 生成视频</button>
+  <div id="taskStatus" style="margin-top:8px;"></div>
+  <div style="margin-top:8px;font-size:0.75em;color:#555;">数据目录: <span id="dataDir"></span></div>
+</div>
+
+<div class="main">
+  <div class="card">
+    <h2>📋 日志</h2>
+    <div id="log">准备就绪。</div>
+  </div>
+  <div class="card">
+    <h2>🎬 预览</h2>
+    <video id="preview" controls></video>
+    <div id="previewPlaceholder" style="color:#555; padding:30px; text-align:center;">视频生成后将在此预览</div>
+  </div>
+</div>
+
+<script>
+function log(msg) {
+  const el = document.getElementById('log');
+  const t = new Date().toLocaleTimeString();
+  el.textContent = el.textContent.replace('准备就绪。\n','').replace('准备就绪。','') + t + '  ' + msg + '\n';
+  el.scrollTop = el.scrollHeight;
+}
+
+async function api(method, path, body) {
+  const opts = { method, headers: {} };
+  if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+  const res = await fetch(path, opts);
+  if (!res.ok) { const txt = await res.text(); throw new Error(res.status + ': ' + txt.substring(0, 300)); }
+  return res.json();
+}
+
+function loadVoices() {
+  const server = document.getElementById('tts_server').value;
+  const voices = {
+    'azure-tts-v1': [
+      {id:'zh-CN-XiaoxiaoNeural-Female', name:'晓晓 (女)'},
+      {id:'zh-CN-YunxiNeural-Male', name:'云希 (男)'},
+      {id:'zh-CN-YunyangNeural-Male', name:'云扬 (男)'},
+      {id:'zh-CN-XiaoyiNeural-Female', name:'晓伊 (女)'},
+      {id:'zh-CN-YunjianNeural-Male', name:'云健 (男)'},
+      {id:'zh-CN-XiaochenNeural-Female', name:'晓辰 (女)'},
+    ],
+    'siliconflow': [
+      {id:'siliconflow:FunAudioLLM/CosyVoice2-0.5B:alex-Male', name:'Alex (男)'},
+      {id:'siliconflow:FunAudioLLM/CosyVoice2-0.5B:anna-Female', name:'Anna (女)'},
+      {id:'siliconflow:FunAudioLLM/CosyVoice2-0.5B:bella-Female', name:'Bella (女)'},
+    ],
+    'mimo-tts': [
+      {id:'mimo:冰糖-Female', name:'冰糖 (女)'},
+      {id:'mimo:茉莉-Female', name:'茉莉 (女)'},
+      {id:'mimo:苏打-Male', name:'苏打 (男)'},
+      {id:'mimo:白桦-Male', name:'白桦 (男)'},
+    ],
+  };
+  const sel = document.getElementById('voice_name');
+  sel.innerHTML = '';
+  (voices[server]||[]).forEach(v => {
+    const o = document.createElement('option'); o.value=v.id; o.textContent=v.name; sel.appendChild(o);
+  });
+}
+
+async function startGeneration() {
+  const script = document.getElementById('script').value.trim();
+  if (!script) { alert('请输入视频文案'); return; }
+  const btn = document.getElementById('genBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>生成中...';
+  document.getElementById('preview').style.display = 'none';
+  document.getElementById('previewPlaceholder').style.display = 'block';
+  document.getElementById('taskStatus').innerHTML = '<span class="status processing">⏳ 处理中</span>';
+  document.getElementById('log').textContent = '';
+
+  const params = {
+    video_subject: '', video_script: script,
+    video_source: document.getElementById('video_source').value,
+    video_aspect: document.getElementById('video_aspect').value,
+    voice_name: document.getElementById('voice_name').value,
+    font_size: parseInt(document.getElementById('font_size').value)||60,
+    bgm_type: document.getElementById('bgm_type').value,
+    subtitle_position: 'bottom', subtitle_enabled: true, video_count: 1, n_threads: 2,
+  };
+
+  try {
+    log('提交视频生成任务...');
+    const result = await api('POST', '/api/v1/videos', params);
+    const taskId = result.data.task_id;
+    log('任务ID: ' + taskId);
+
+    let done = false;
+    while (!done) {
+      await new Promise(r => setTimeout(r, 3000));
+      try {
+        const status = await api('GET', '/api/v1/tasks/' + taskId);
+        const s = status.data;
+        if (s.progress !== undefined) log('进度: ' + Math.round(s.progress) + '%');
+        if (s.msg) log('   ' + s.msg);
+        if (s.state === 3) {
+          done = true;
+          document.getElementById('taskStatus').innerHTML = '<span class="status complete">✅ 完成</span>';
+          if (s.videos && s.videos.length > 0) {
+            const vp = s.videos[0];
+            const m = vp.match(/tasks\/(.+?)\/(final-.+)/);
+            if (m) {
+              const url = '/api/v1/download/' + m[1] + '/' + m[2];
+              const pv = document.getElementById('preview');
+              pv.src = url; pv.style.display = 'block';
+              document.getElementById('previewPlaceholder').style.display = 'none';
+              log('视频已就绪 ✓');
+            }
+          }
+        } else if (s.state === 4 || s.state === 5) {
+          done = true;
+          document.getElementById('taskStatus').innerHTML = '<span class="status failed">❌ 失败</span>';
+          log('生成失败: ' + JSON.stringify(s));
+        }
+      } catch(e) { log('查询状态异常: ' + e.message); }
+    }
+  } catch(e) {
+    log('错误: ' + e.message);
+    document.getElementById('taskStatus').innerHTML = '<span class="status failed">❌ ' + e.message + '</span>';
+  } finally {
+    btn.disabled = false; btn.textContent = '🚀 生成视频';
+  }
+}
+
+loadVoices();
+</script>
 </body>
 </html>

@@ -129,13 +129,6 @@ def get_hidden_imports():
         "edge_tts", "requests", "loguru", "numpy",
         "PIL", "PIL.Image", "PIL.ImageDraw", "PIL.ImageFont",
         "pydub", "pydub.playback",
-        # Streamlit
-        "streamlit", "streamlit.web.bootstrap", "streamlit.web.cli",
-        "streamlit.runtime", "streamlit.runtime.scriptrunner",
-        "streamlit.runtime.state",
-        # Streamlit 依赖的 Tornado Web 服务器
-        "tornado", "tornado.web", "tornado.httpserver",
-        "tornado.ioloop", "tornado.iostream", "tornado.httputil",
         # FastAPI + uvicorn
         "fastapi", "uvicorn", "uvicorn.loops", "uvicorn.loops.auto",
         "uvicorn.protocols", "uvicorn.protocols.http", "uvicorn.protocols.http.auto",
@@ -178,17 +171,11 @@ def get_pyinstaller_args():
         # 排除不需要的模块，减少包体积
         *[f"--exclude-module={m}" for m in excludes],
         *[f"--hidden-import={m}" for m in hidden],
-        # 复制包元数据（moviepy/streamlit/numpy 等通过 importlib.metadata 读取版本）
+        # 复制包元数据
         "--copy-metadata", "moviepy",
         "--copy-metadata", "numpy",
-        "--copy-metadata", "streamlit",
         "--copy-metadata", "fastapi",
-        # Runtime hook: patch importlib.metadata.version for frozen environment
         "--runtime-hook", str(ROOT_DIR / "runtime_hook.py"),
-        # 收集 Streamlit 前端静态文件（HTML/JS/CSS）
-        "--collect-data", "streamlit",
-        "--collect-data", "tornado",
-        "--collect-all", "streamlit",
     ]
 
     for src, dst in data_files:
