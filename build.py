@@ -130,8 +130,12 @@ def get_hidden_imports():
         "PIL", "PIL.Image", "PIL.ImageDraw", "PIL.ImageFont",
         "pydub", "pydub.playback",
         # Streamlit
-        "streamlit", "streamlit.web.bootstrap",
+        "streamlit", "streamlit.web.bootstrap", "streamlit.web.cli",
         "streamlit.runtime", "streamlit.runtime.scriptrunner",
+        "streamlit.runtime.state",
+        # Streamlit 依赖的 Tornado Web 服务器
+        "tornado", "tornado.web", "tornado.httpserver",
+        "tornado.ioloop", "tornado.iostream", "tornado.httputil",
         # FastAPI + uvicorn
         "fastapi", "uvicorn", "uvicorn.loops", "uvicorn.loops.auto",
         "uvicorn.protocols", "uvicorn.protocols.http", "uvicorn.protocols.http.auto",
@@ -181,6 +185,10 @@ def get_pyinstaller_args():
         "--copy-metadata", "fastapi",
         # Runtime hook: patch importlib.metadata.version for frozen environment
         "--runtime-hook", str(ROOT_DIR / "runtime_hook.py"),
+        # 收集 Streamlit 前端静态文件（HTML/JS/CSS）
+        "--collect-data", "streamlit",
+        "--collect-data", "tornado",
+        "--collect-all", "streamlit",
     ]
 
     for src, dst in data_files:
